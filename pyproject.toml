@@ -1,14 +1,21 @@
 [project]
 name = "alive-drift"
 version = "0.1.0"
-description = "Add your description here"
+description = "Mesure de dérive d'agents LLM médicaux, construite autour d'Alive"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
-
-[project.scripts]
-alive-drift = "alive_drift:main"
+dependencies = [
+    "httpx>=0.28",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

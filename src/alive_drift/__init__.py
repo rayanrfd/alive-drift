@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from alive-drift!")
+"""Mesure de dérive d'agents LLM médicaux, construite uniquement autour d'Alive."""
