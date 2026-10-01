@@ -12,8 +12,10 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   Rejette si le run n'a pas abouti, si la réponse est vide, ou si le modèle
   servi n'est pas exactement celui demandé (fallback, substitution, plusieurs
   appels, raisonnement non coupé).
-- `src/alive_drift/client.py` : lance UN run (pas encore de réessai ni de
-  parallélisme) et renvoie le JSON d'Alive vérifié par `check_run`.
+- `src/alive_drift/client.py` : lance UN run et renvoie le JSON d'Alive vérifié
+  par `check_run`. Jusqu'à 3 essais si Alive répond 429 ou 5xx, ou si le réseau
+  coupe ; jamais pour une erreur de notre requête ni pour un run rejeté.
+  Pas encore de parallélisme.
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
 
 ## Tests

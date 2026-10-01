@@ -1,7 +1,8 @@
 """Lance UN run sur Alive et renvoie sa réponse JSON, vérifiée par check_run.
 
-Pas encore de réessai ni de parallélisme : un appel, une réponse.
-Équivalent Python du curl de alive_quickref.md §4.
+run_once : un appel, une réponse. Équivalent Python du curl de alive_quickref.md §4.
+run_with_retries : run_once, réessayé si l'échec vient du serveur ou du réseau.
+Pas encore de parallélisme.
 
 Essai réel (un run, coût ~0,003 crédit) :
 
@@ -14,6 +15,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 import httpx
 
@@ -23,6 +25,15 @@ BASE_URL = "https://brain-bzh.alive.dev/api/v1"
 
 # Un run peut durer longtemps (Alive coupe à 1800 s). 300 s suffit pour une réponse.
 TIMEOUT_S = 300.0
+
+# Codes HTTP qui valent la peine d'un nouvel essai : serveur surchargé (429)
+# ou en panne passagère (5xx). Un 502 d'Alive n'est pas facturé.
+# Les autres erreurs (400, 401, 403, 404, 423...) viennent de NOTRE requête
+# ou de notre jeton : réessayer ne changerait rien.
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+# Attente avant le 2e puis le 3e essai. 2 délais = 3 essais au total.
+RETRY_DELAYS_S = (2.0, 5.0)
 
 
 def make_client(token: str, transport: httpx.BaseTransport | None = None) -> httpx.Client:
@@ -58,7 +69,39 @@ def run_once(client: httpx.Client, room_id: str, deployment_id: str,
     return run
 
 
-def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = None) -> int:
+def is_retryable(err: Exception) -> bool:
+    """Vrai si l'échec vient du serveur ou du réseau, pas de notre requête."""
+    if isinstance(err, httpx.HTTPStatusError):
+        return err.response.status_code in RETRYABLE_STATUS
+    # TransportError : connexion impossible, coupée, ou délai dépassé (timeout).
+    return isinstance(err, httpx.TransportError)
+
+
+def run_with_retries(client: httpx.Client, room_id: str, deployment_id: str,
+                     question: str, expected_model: str, sleep=time.sleep) -> dict:
+    """run_once, avec jusqu'à 3 essais si l'échec est passager.
+
+    RunRejected n'est JAMAIS réessayé : le run a abouti (donc il est facturé)
+    mais a été servi autrement que demandé. On veut le voir, pas le masquer.
+
+    `sleep` sert seulement aux tests, pour ne pas attendre pour de vrai.
+    """
+    attempts = len(RETRY_DELAYS_S) + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            return run_once(client, room_id, deployment_id, question, expected_model)
+        except (httpx.HTTPStatusError, httpx.TransportError) as err:
+            if attempt == attempts or not is_retryable(err):
+                raise  # dernier essai, ou erreur qui ne passera pas en réessayant
+            delay = RETRY_DELAYS_S[attempt - 1]
+            print(f"essai {attempt}/{attempts} échoué ({type(err).__name__}), "
+                  f"nouvel essai dans {delay:g} s", file=sys.stderr)
+            sleep(delay)
+    raise AssertionError("inatteignable")  # la boucle rend ou lève toujours
+
+
+def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = None,
+         sleep=time.sleep) -> int:
     """Lance un run, affiche le JSON brut puis le verdict. Renvoie le code de sortie."""
     parser = argparse.ArgumentParser(description="Un run Alive, sortie brute + verdict.")
     parser.add_argument("room_id")
@@ -74,8 +117,8 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
 
     with make_client(token, transport) as client:
         try:
-            run = run_once(client, args.room_id, args.deployment_id,
-                           args.question, args.expected_model)
+            run = run_with_retries(client, args.room_id, args.deployment_id,
+                                   args.question, args.expected_model, sleep=sleep)
         except RunRejected as err:
             print(f"REJETÉ : {err}")
             return 1
