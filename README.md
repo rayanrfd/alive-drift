@@ -18,8 +18,11 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
 - `src/alive_drift/generate.py` : un run par question pour UNE config (A, A_bis, B).
   Chaque réponse est écrite tout de suite dans un JSONL ; les échecs vont dans
   `<sortie>.errors.jsonl`. Arrêt après 5 échecs d'affilée ou sur une erreur de
-  notre côté (401, 404...). Refuse d'écraser une sortie existante.
-  Pas encore de reprise ni de parallélisme.
+  notre côté (401, 404...).
+  Reprise : relancer la même commande saute les questions déjà dans la sortie
+  et retente les autres. Rien n'est jamais écrasé ; un fichier qui n'est pas
+  celui de la campagne (autre config, autre modèle, autres questions, ligne
+  abîmée) est refusé sans lancer de run. Pas encore de parallélisme.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
 

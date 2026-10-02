@@ -2,11 +2,15 @@
 
 Pour chaque question : un run Alive (run_with_retries), puis une ligne écrite
 tout de suite dans le fichier de sortie. Une question après l'autre, pas encore
-de reprise ni de parallélisme.
+de parallélisme.
 
 Deux fichiers JSONL (une ligne = un objet JSON) :
-- <out>            : les réponses gardées ;
-- <out>.errors     : les questions sans réponse, avec la raison.
+- <out>            : les réponses gardées. C'est LA référence : une question est
+                     "faite" si et seulement si elle a une ligne ici ;
+- <out>.errors     : journal des tentatives ratées, avec la raison.
+
+Reprise : relancer la même commande saute les questions déjà dans <out> et
+retente les autres (y compris celles qui avaient échoué).
 
 Exemple sur 3 questions (3 runs payants, quelques millièmes de crédit) :
 
@@ -105,12 +109,61 @@ def errors_path_for(out_path: Path) -> Path:
     return out_path.with_name(out_path.stem + ".errors.jsonl")
 
 
+# --- Reprise -------------------------------------------------------------------
+
+def load_done_ids(out_path: Path, questions: list[dict], *, config: str,
+                  expected_model: str) -> set[str]:
+    """Ids des questions qui ont déjà une réponse dans out_path.
+
+    Ensemble vide si le fichier n'existe pas (premier lancement).
+
+    Avant de compléter un fichier, on vérifie qu'il est bien celui de CETTE
+    campagne. Lève ValueError à la première ligne qui ne colle pas : on ne
+    mélange jamais deux configs, deux modèles ou deux jeux de questions, et on
+    ne répare pas le fichier tout seul.
+    """
+    if not out_path.exists():
+        return set()
+    content = out_path.read_text(encoding="utf-8")
+    # Chaque ligne est écrite avec son retour à la ligne. S'il manque à la fin,
+    # la dernière écriture a été coupée : la prochaine ligne s'y collerait.
+    if content and not content.endswith("\n"):
+        raise ValueError(f"{out_path} : dernière ligne incomplète (écriture interrompue ?)")
+
+    text_by_id = {q["id"]: q["text"] for q in questions}
+    done = set()
+    for n, line in enumerate(content.splitlines(), start=1):
+        where = f"{out_path} ligne {n}"
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            record = None
+        if not isinstance(record, dict):
+            raise ValueError(f"{where} : ligne illisible")
+        qid = record.get("question_id")
+        if record.get("config") != config:
+            raise ValueError(f"{where} : config {record.get('config')!r}, attendu {config!r}")
+        if record.get("model") != expected_model:
+            raise ValueError(f"{where} : modèle {record.get('model')!r}, attendu {expected_model!r}")
+        if qid not in text_by_id:
+            raise ValueError(f"{where} : question {qid!r} absente du fichier de questions")
+        if record.get("question") != text_by_id[qid]:
+            raise ValueError(f"{where} : le texte de la question {qid!r} a changé")
+        if qid in done:
+            raise ValueError(f"{where} : question {qid!r} en double")
+        done.add(qid)
+    return done
+
+
 # --- La boucle -----------------------------------------------------------------
 
 def generate(client: httpx.Client, questions: list[dict], *, room_id: str,
              deployment_id: str, expected_model: str, config: str,
-             out_path, sleep=time.sleep) -> tuple[int, int]:
-    """Un run par question. Renvoie (nombre de réponses gardées, nombre d'échecs).
+             out_path, limit: int | None = None, sleep=time.sleep) -> tuple[int, int]:
+    """Un run par question à faire. Renvoie (réponses gardées, échecs) DE CE LANCEMENT.
+
+    `limit` : ne considérer que les N premières questions.
+    Les questions qui ont déjà une ligne dans out_path sont sautées (reprise).
 
     - Réponse gardée  -> une ligne dans out_path, écrite immédiatement.
     - Run rejeté, ou échec passager après 3 essais -> une ligne dans le fichier
@@ -119,17 +172,23 @@ def generate(client: httpx.Client, questions: list[dict], *, room_id: str,
       échouerait de la même façon.
     - 5 échecs d'affilée -> CampaignStopped.
 
-    Refuse de démarrer si un des deux fichiers existe : on n'écrase jamais.
+    On n'écrase jamais : les deux fichiers sont seulement complétés par la fin.
+    Si out_path existe mais n'est pas celui de cette campagne -> ValueError,
+    aucun run lancé.
     """
     out_path = Path(out_path)
     errors_path = errors_path_for(out_path)
-    for path in (out_path, errors_path):
-        if path.exists():
-            raise FileExistsError(f"{path} existe déjà : on n'écrase pas une sortie")
+    # Vérifié contre TOUTES les questions, pas seulement les `limit` premières :
+    # un fichier de 10 réponses reste valide si on relance avec --limit 3.
+    done = load_done_ids(out_path, questions, config=config, expected_model=expected_model)
+    todo = [q for q in questions[:limit] if q["id"] not in done]
+    if done:
+        print(f"reprise : {len(done)} réponses déjà dans {out_path}, "
+              f"{len(todo)} questions à faire", file=sys.stderr)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     n_ok = n_failed = consecutive = 0
-    for i, question in enumerate(questions, start=1):
+    for i, question in enumerate(todo, start=1):
         try:
             run = run_with_retries(client, room_id, deployment_id,
                                    question["text"], expected_model, sleep=sleep)
@@ -144,7 +203,7 @@ def generate(client: httpx.Client, questions: list[dict], *, room_id: str,
             })
             n_failed += 1
             consecutive += 1
-            print(f"[{i}/{len(questions)}] question {question['id']} : ÉCHEC "
+            print(f"[{i}/{len(todo)}] question {question['id']} : ÉCHEC "
                   f"({type(err).__name__})", file=sys.stderr)
             if consecutive >= MAX_CONSECUTIVE_FAILURES:
                 raise CampaignStopped(
@@ -155,7 +214,7 @@ def generate(client: httpx.Client, questions: list[dict], *, room_id: str,
         append_line(out_path, make_record(question, run, config))
         n_ok += 1
         consecutive = 0
-        print(f"[{i}/{len(questions)}] question {question['id']} : ok", file=sys.stderr)
+        print(f"[{i}/{len(todo)}] question {question['id']} : ok", file=sys.stderr)
     return n_ok, n_failed
 
 
@@ -179,23 +238,21 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
         return 2
 
     questions = load_questions(args.questions)
-    if args.limit is not None:
-        questions = questions[:args.limit]
 
     with make_client(token, transport) as client:
         try:
             n_ok, n_failed = generate(
                 client, questions, room_id=args.room, deployment_id=args.deployment,
                 expected_model=args.model, config=args.config, out_path=args.out,
-                sleep=sleep,
+                limit=args.limit, sleep=sleep,
             )
-        except FileExistsError as err:
-            print(err, file=sys.stderr)
+        except ValueError as err:  # le fichier de sortie n'est pas celui de cette campagne
+            print(f"REFUS : {err}", file=sys.stderr)
             return 2
         except (CampaignStopped, httpx.HTTPStatusError) as err:
             print(f"ARRÊT : {err}", file=sys.stderr)
             return 1
-    print(f"{n_ok} réponses gardées, {n_failed} échecs -> {args.out}")
+    print(f"{n_ok} réponses gardées, {n_failed} échecs à ce lancement -> {args.out}")
     return 0 if n_failed == 0 else 1
 
 

@@ -52,14 +52,15 @@ def fake_alive(plan=None, on_request=None):
     return httpx.MockTransport(handler), inputs
 
 
-def run_generate(questions, out_path, plan=None, on_request=None):
+def run_generate(questions, out_path, plan=None, on_request=None, *,
+                 config="A", model=MODEL, limit=None):
     """Lance generate. Renvoie (résultat ou exception, questions reçues par le serveur)."""
     transport, inputs = fake_alive(plan, on_request)
     with make_client(TOKEN, transport) as client:
         try:
             result = generate(client, questions, room_id=ROOM, deployment_id=DEPLOYMENT,
-                              expected_model=MODEL, config="A", out_path=out_path,
-                              sleep=lambda s: None)
+                              expected_model=model, config=config, out_path=out_path,
+                              limit=limit, sleep=lambda s: None)
         except Exception as err:
             result = err
     return result, inputs
@@ -224,15 +225,147 @@ def test_un_succes_remet_le_compteur_a_zero(tmp_path):
     assert result == (1, 8)
 
 
-# --- On n'écrase jamais ---------------------------------------------------------
+# --- Reprise : on saute ce qui est fait, on retente le reste --------------------
 
-@pytest.mark.parametrize("existing", ["A.jsonl", "A.errors.jsonl"])
-def test_refuse_si_sortie_existe(tmp_path, existing):
-    (tmp_path / existing).write_text("déjà là\n", encoding="utf-8")
-    result, inputs = run_generate(make_questions(2), tmp_path / "A.jsonl")
-    assert isinstance(result, FileExistsError)
-    assert inputs == []  # aucun run lancé
-    assert (tmp_path / existing).read_text(encoding="utf-8") == "déjà là\n"  # intact
+def ids_in(path):
+    return [r["question_id"] for r in read_jsonl(path)]
+
+
+def test_reprise_saute_les_questions_faites(tmp_path):
+    out = tmp_path / "A.jsonl"
+    run_generate(make_questions(5), out, limit=2)          # 1er lancement : questions 0 et 1
+    result, inputs = run_generate(make_questions(5), out)   # 2e lancement : tout
+
+    assert inputs == ["question 2", "question 3", "question 4"]  # 0 et 1 pas renvoyées
+    assert result == (3, 0)  # le compte de CE lancement
+    assert ids_in(out) == ["0", "1", "2", "3", "4"]
+
+
+def test_reprise_apres_un_arret_401(tmp_path):
+    out = tmp_path / "A.jsonl"
+    result, _ = run_generate(make_questions(4), out, plan={"question 2": [401]})
+    assert isinstance(result, httpx.HTTPStatusError)
+    assert ids_in(out) == ["0", "1"]
+
+    result, inputs = run_generate(make_questions(4), out)  # jeton réparé, on relance
+    assert inputs == ["question 2", "question 3"]
+    assert ids_in(out) == ["0", "1", "2", "3"]
+
+
+def test_reprise_retente_les_echecs(tmp_path):
+    out = tmp_path / "A.jsonl"
+    run_generate(make_questions(3), out, plan={"question 1": ["gemini"]})
+    assert ids_in(out) == ["0", "2"]
+
+    result, inputs = run_generate(make_questions(3), out)
+    assert inputs == ["question 1"]  # seule la question sans réponse est renvoyée
+    assert result == (1, 0)
+    assert ids_in(out) == ["0", "2", "1"]  # ajoutée à la fin
+    # Le journal d'erreurs garde la trace de la tentative ratée.
+    assert [e["question_id"] for e in read_jsonl(errors_path_for(out))] == ["1"]
+
+
+def test_relance_quand_tout_est_fait(tmp_path):
+    out = tmp_path / "A.jsonl"
+    run_generate(make_questions(3), out)
+    before = out.read_text(encoding="utf-8")
+
+    result, inputs = run_generate(make_questions(3), out)
+    assert inputs == []  # aucun run, donc aucun coût
+    assert result == (0, 0)
+    assert out.read_text(encoding="utf-8") == before
+
+
+def test_les_lignes_existantes_ne_sont_jamais_modifiees(tmp_path):
+    out = tmp_path / "A.jsonl"
+    run_generate(make_questions(5), out, limit=2)
+    before = out.read_text(encoding="utf-8")
+    run_generate(make_questions(5), out)
+    assert out.read_text(encoding="utf-8").startswith(before)
+
+
+def test_limit_plus_petit_que_le_fichier(tmp_path):
+    # 5 réponses déjà là, relance avec limit=3 : rien à faire, et pas de refus.
+    out = tmp_path / "A.jsonl"
+    run_generate(make_questions(5), out)
+    result, inputs = run_generate(make_questions(5), out, limit=3)
+    assert result == (0, 0)
+    assert inputs == []
+
+
+def test_journal_d_erreurs_existant_complete(tmp_path):
+    out = tmp_path / "A.jsonl"
+    errors = errors_path_for(out)
+    errors.write_text('{"question_id": "9", "ancien": true}\n', encoding="utf-8")
+    run_generate(make_questions(2), out, plan={"question 0": ["gemini"]})
+    lines = read_jsonl(errors)
+    assert lines[0] == {"question_id": "9", "ancien": True}  # l'ancienne ligne est intacte
+    assert lines[1]["question_id"] == "0"
+
+
+# --- Reprise refusée : le fichier n'est pas celui de cette campagne -------------
+
+def refused(tmp_path, tamper=None, **relaunch):
+    """Crée A.jsonl (3 questions, config A), l'abîme avec `tamper`, puis relance.
+
+    Vérifie qu'aucun run n'est lancé et que le fichier n'est pas touché.
+    Renvoie le message de l'erreur.
+    """
+    out = tmp_path / "A.jsonl"
+    run_generate(make_questions(3), out)
+    if tamper:
+        out.write_text(tamper(out.read_text(encoding="utf-8")), encoding="utf-8")
+    before = out.read_text(encoding="utf-8")
+
+    questions = relaunch.pop("questions", make_questions(5))
+    result, inputs = run_generate(questions, out, **relaunch)
+    assert isinstance(result, ValueError)
+    assert inputs == []
+    assert out.read_text(encoding="utf-8") == before
+    return str(result)
+
+
+def test_refus_autre_config(tmp_path):
+    assert "config 'A', attendu 'B'" in refused(tmp_path, config="B")
+
+
+def test_refus_autre_modele(tmp_path):
+    assert "attendu 'openai/gpt-4.1-mini'" in refused(tmp_path, model="openai/gpt-4.1-mini")
+
+
+def test_refus_question_inconnue(tmp_path):
+    other = [{"id": "100", "text": "autre jeu de questions"}]
+    assert "question '0' absente" in refused(tmp_path, questions=other)
+
+
+def test_refus_texte_de_question_change(tmp_path):
+    changed = make_questions(5)
+    changed[1]["text"] = "question 1 reformulée"
+    assert "texte de la question '1' a changé" in refused(tmp_path, questions=changed)
+
+
+def test_refus_ligne_en_double(tmp_path):
+    msg = refused(tmp_path, tamper=lambda text: text + text.splitlines()[0] + "\n")
+    assert "ligne 4" in msg and "question '0' en double" in msg
+
+
+def test_refus_ligne_illisible(tmp_path):
+    msg = refused(tmp_path, tamper=lambda text: text + "ceci n'est pas du JSON\n")
+    assert "ligne 4 : ligne illisible" in msg
+
+
+def test_refus_ligne_vide(tmp_path):
+    assert "ligne 4 : ligne illisible" in refused(tmp_path, tamper=lambda text: text + "\n")
+
+
+def test_refus_derniere_ligne_coupee(tmp_path):
+    # Écriture interrompue au milieu de la 3e ligne.
+    assert "dernière ligne incomplète" in refused(tmp_path, tamper=lambda text: text[:-40])
+
+
+def test_refus_derniere_ligne_sans_retour(tmp_path):
+    # JSON complet mais sans "\n" final : la ligne suivante s'y collerait.
+    assert "dernière ligne incomplète" in refused(tmp_path, tamper=lambda text: text[:-1])
 
 
 def test_cree_le_dossier_de_sortie(tmp_path):
@@ -288,10 +421,25 @@ def test_main_sans_jeton(tmp_path, monkeypatch):
     assert not out.exists()
 
 
-def test_main_sortie_existante_code_2(tmp_path, monkeypatch):
+def test_main_relance(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    args, out = cli_args(tmp_path, 4, "--limit", "2")
+    transport, _ = fake_alive()
+    assert main(args, transport) == 0
+
+    args_full = [a for a in args if a not in ("--limit", "2")]  # même commande, sans limite
+    transport, inputs = fake_alive()
+    assert main(args_full, transport) == 0
+    assert inputs == ["question 2", "question 3"]
+    assert len(read_jsonl(out)) == 4
+    assert "2 réponses gardées, 0 échecs à ce lancement" in capsys.readouterr().out
+
+
+def test_main_fichier_d_une_autre_campagne_code_2(tmp_path, monkeypatch):
     monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
     args, out = cli_args(tmp_path, 2)
     out.write_text("déjà là\n", encoding="utf-8")
     transport, inputs = fake_alive()
     assert main(args, transport) == 2
     assert inputs == []
+    assert out.read_text(encoding="utf-8") == "déjà là\n"  # intact
