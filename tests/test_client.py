@@ -71,6 +71,16 @@ def test_reponse_avec_fallback_rejetee():
             run_once(client, ROOM, DEPLOYMENT, QUESTION, MODEL)
 
 
+# --- Code 200 mais contenu inutilisable : rejet propre ------------------------
+
+@pytest.mark.parametrize("content", [b"<html>erreur</html>", b"null", b"[]", b""])
+def test_200_mal_forme_rejete(content):
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=content))
+    with make_client(TOKEN, transport) as client:
+        with pytest.raises(RunRejected):
+            run_once(client, ROOM, DEPLOYMENT, QUESTION, MODEL)
+
+
 # --- Erreurs HTTP : exception, un seul appel (pas de réessai à ce stade) -----
 
 @pytest.mark.parametrize("code", [401, 502])

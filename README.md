@@ -15,6 +15,8 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
 - `src/alive_drift/client.py` : lance UN run et renvoie le JSON d'Alive vérifié
   par `check_run`. Jusqu'à 3 essais si Alive répond 429 ou 5xx, ou si le réseau
   coupe ; jamais pour une erreur de notre requête ni pour un run rejeté.
+- `configs.json` + `src/alive_drift/config.py` : les configs, décrites une fois
+  (room, déploiement, modèle, effort de raisonnement) et choisies par leur nom.
 - `src/alive_drift/generate.py` : un run par question pour UNE config (A, A_bis, B).
   Chaque réponse est écrite tout de suite dans un JSONL ; les échecs vont dans
   `<sortie>.errors.jsonl`. Arrêt après 5 échecs d'affilée ou sur une erreur de
@@ -23,6 +25,7 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   et retente les autres. Rien n'est jamais écrasé ; un fichier qui n'est pas
   celui de la campagne (autre config, autre modèle, autres questions, ligne
   abîmée) est refusé sans lancer de run. Pas encore de parallélisme.
+  Commande : `uv run python -m alive_drift.generate --config sonde --out outputs/sonde.jsonl --limit 3`.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
 
@@ -37,3 +40,17 @@ uv run pytest -q
 ## Jeton
 
 `export ALIVE_TOKEN=...` avant tout appel réel. Jamais dans un fichier commité.
+
+## Règles d'usage
+
+- Ne jamais lancer deux fois la même commande en parallèle (deux processus
+  écriraient les mêmes questions).
+- Le fichier de sortie n'est pas trié après une reprise : toujours retrouver une
+  réponse par son `question_id`, jamais par sa position.
+
+## Limites connues, acceptées
+
+- Après un timeout (300 s côté client, 1800 s côté Alive), le nouvel essai peut
+  créer un second run facturé.
+- Un run rejeté est facturé, et retenté à chaque relance ; le compteur des 5
+  échecs d'affilée repart de zéro à chaque lancement.

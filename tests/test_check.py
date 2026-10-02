@@ -159,6 +159,59 @@ def test_raisonnement_high():
     assert_rejected(run, "reasoning_effort")
 
 
+def test_tokens_de_raisonnement_alors_que_coupe():
+    # L'étiquette dit "none" mais le compteur dit que le modèle a raisonné.
+    run = run_copy()
+    run["tokens"]["reasoning"] = 500
+    assert_rejected(run, "500 tokens de raisonnement")
+
+
+def test_compteur_de_raisonnement_absent():
+    run = run_copy()
+    del run["tokens"]
+    assert_rejected(run, "tokens de raisonnement")
+
+
+def test_effort_high_voulu_et_servi():
+    # Si la config demande "high", l'étiquette doit dire "high" et le compteur est libre.
+    run = run_copy()
+    run["model"]["reasoning_effort"] = "high"
+    run["tokens"]["reasoning"] = 500
+    check_run(run, MODEL, "high")
+
+
+def test_effort_high_voulu_mais_none_servi():
+    with pytest.raises(RunRejected, match="reasoning_effort 'none', attendu 'high'"):
+        check_run(run_copy(), MODEL, "high")
+
+
+# --- 7. execution_id et provider présents ------------------------------------
+
+def test_execution_id_absent():
+    run = run_copy()
+    del run["execution_id"]
+    assert_rejected(run, "execution_id absent")
+
+
+def test_provider_absent():
+    run = run_copy()
+    del run["model"]["served"][0]["provider"]
+    assert_rejected(run, "provider absent")
+
+
+# --- 0. Réponse qui n'a pas la forme attendue : rejet, pas de plantage ---------
+
+@pytest.mark.parametrize("bad", [None, [], "du texte", 42])
+def test_reponse_pas_un_objet(bad):
+    assert_rejected(bad, "réponse mal formée")
+
+
+def test_served_pas_un_objet():
+    run = run_copy()
+    run["model"]["served"] = ["mistral"]
+    assert_rejected(run, "served[0] mal formé")
+
+
 # --- Le provider n'est PAS un motif de rejet ---------------------------------
 
 def test_provider_venice_accepte():

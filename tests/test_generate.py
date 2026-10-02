@@ -3,7 +3,8 @@
 Le faux serveur répond selon la QUESTION reçue : `plan` associe un texte de
 question à la liste de ses réponses successives (une par appel). Une question
 absente du plan reçoit la vraie sortie du 01/10 (code 200).
-Étapes possibles : 200, "gemini" (200 mais servi par Gemini), ou un code d'erreur.
+Étapes possibles : 200, "gemini" (200 mais servi par Gemini), "html" (200 mais
+le contenu n'est pas du JSON), ou un code d'erreur.
 """
 
 import copy
@@ -14,6 +15,7 @@ import httpx
 import pytest
 
 from alive_drift.client import make_client
+from alive_drift.config import Config
 from alive_drift.generate import (
     CampaignStopped, errors_path_for, generate, load_questions, main,
 )
@@ -25,6 +27,11 @@ DEPLOYMENT = "dp-E8dfWyMHc4Q7oXnN"
 
 GEMINI_RUN = copy.deepcopy(REAL_RUN)
 GEMINI_RUN["model"]["served"][0]["model"] = "google/gemini-3.1-flash-lite"
+
+
+def make_config(name="A", deployment=DEPLOYMENT, model=MODEL, effort="none"):
+    return Config(name=name, room=ROOM, deployment=deployment, model=model,
+                  reasoning_effort=effort)
 
 
 def make_questions(n):
@@ -47,20 +54,21 @@ def fake_alive(plan=None, on_request=None):
             return httpx.Response(200, json=REAL_RUN)
         if step == "gemini":
             return httpx.Response(200, json=GEMINI_RUN)
+        if step == "html":
+            return httpx.Response(200, content=b"<html>page d'erreur</html>")
         return httpx.Response(step, json={"detail": f"erreur {step}"})
 
     return httpx.MockTransport(handler), inputs
 
 
 def run_generate(questions, out_path, plan=None, on_request=None, *,
-                 config="A", model=MODEL, limit=None):
-    """Lance generate. Renvoie (résultat ou exception, questions reçues par le serveur)."""
+                 config=None, limit=None):
+    """Lance generate (config A par défaut). Renvoie (résultat ou exception, questions reçues)."""
     transport, inputs = fake_alive(plan, on_request)
     with make_client(TOKEN, transport) as client:
         try:
-            result = generate(client, questions, room_id=ROOM, deployment_id=DEPLOYMENT,
-                              expected_model=model, config=config, out_path=out_path,
-                              limit=limit, sleep=lambda s: None)
+            result = generate(client, questions, config or make_config(),
+                              out_path=out_path, limit=limit, sleep=lambda s: None)
         except Exception as err:
             result = err
     return result, inputs
@@ -102,6 +110,7 @@ def test_load_questions_id_entier_devient_texte(tmp_path):
     (['{"id": "0", "text": "  "}'], "'text' vide"),
     (['{"id": "0"}'], "'text' vide"),
     (['{"text": "a"}'], "'id' manquant"),
+    ([""], "aucune question"),
 ])
 def test_load_questions_refuse(tmp_path, lines, expected_words):
     path = write(tmp_path / "q.jsonl", lines)
@@ -133,6 +142,7 @@ def test_trois_questions(tmp_path):
     assert records[1] == {
         "question_id": "1",
         "config": "A",
+        "deployment_id": "dp-E8dfWyMHc4Q7oXnN",
         "question": "question 1",
         "response": REAL_RUN["content"],
         "model": "mistralai/mistral-small-24b-instruct-2501",
@@ -174,6 +184,7 @@ def test_run_rejete_note_et_on_continue(tmp_path):
     assert len(errors) == 1
     assert errors[0]["question_id"] == "1"
     assert errors[0]["config"] == "A"
+    assert errors[0]["deployment_id"] == DEPLOYMENT
     assert errors[0]["error_type"] == "RunRejected"
     assert "servi par 'google/gemini-3.1-flash-lite'" in errors[0]["error"]
 
@@ -196,6 +207,51 @@ def test_502_puis_succes_reponse_gardee(tmp_path):
     result, _ = run_generate(make_questions(2), out, plan={"question 0": [502, 200]})
     assert result == (2, 0)
     assert not errors_path_for(out).exists()
+
+
+def test_200_mal_forme_note_et_on_continue(tmp_path):
+    # Une réponse cassée ne doit pas arrêter une campagne de 1000 questions.
+    out = tmp_path / "A.jsonl"
+    result, _ = run_generate(make_questions(3), out, plan={"question 1": ["html"]})
+    assert result == (2, 1)
+    assert [r["question_id"] for r in read_jsonl(out)] == ["0", "2"]
+    assert read_jsonl(errors_path_for(out))[0]["error_type"] == "RunRejected"
+
+
+# --- La config décide où partent les runs et ce qu'on attend -------------------
+
+def test_les_runs_partent_vers_le_deploiement_de_la_config(tmp_path):
+    urls = []
+
+    def handler(request):
+        urls.append(str(request.url))
+        return httpx.Response(200, json=REAL_RUN)
+
+    config = Config(name="A", room="th-ROOM", deployment="dp-DEPLOY", model=MODEL,
+                    reasoning_effort="none")
+    with make_client(TOKEN, httpx.MockTransport(handler)) as client:
+        generate(client, make_questions(1), config, out_path=tmp_path / "A.jsonl")
+    assert urls == ["https://brain-bzh.alive.dev/api/v1/threads/th-ROOM/deployments/dp-DEPLOY/runs"]
+    assert read_jsonl(tmp_path / "A.jsonl")[0]["deployment_id"] == "dp-DEPLOY"
+
+
+def test_effort_de_la_config_verifie(tmp_path):
+    # La config veut "high" ; le faux serveur répond avec "none" : tout est rejeté.
+    out = tmp_path / "A.jsonl"
+    result, _ = run_generate(make_questions(2), out, config=make_config(effort="high"))
+    assert result == (0, 2)
+    assert "attendu 'high'" in read_jsonl(errors_path_for(out))[0]["error"]
+
+
+# --- limit -----------------------------------------------------------------------
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_limit_invalide_refuse(tmp_path, limit):
+    out = tmp_path / "A.jsonl"
+    result, inputs = run_generate(make_questions(3), out, limit=limit)
+    assert isinstance(result, ValueError)
+    assert inputs == []  # -1 aurait lancé toutes les questions sauf la dernière
+    assert not out.exists()
 
 
 # --- Arrêts ----------------------------------------------------------------------
@@ -326,11 +382,32 @@ def refused(tmp_path, tamper=None, **relaunch):
 
 
 def test_refus_autre_config(tmp_path):
-    assert "config 'A', attendu 'B'" in refused(tmp_path, config="B")
+    assert "config 'A', attendu 'B'" in refused(tmp_path, config=make_config(name="B"))
+
+
+def test_refus_autre_deploiement(tmp_path):
+    # Même nom "A", mais configs.json pointe maintenant vers un autre déploiement.
+    msg = refused(tmp_path, config=make_config(deployment="dp-AUTRE"))
+    assert "déploiement 'dp-E8dfWyMHc4Q7oXnN', attendu 'dp-AUTRE'" in msg
 
 
 def test_refus_autre_modele(tmp_path):
-    assert "attendu 'openai/gpt-4.1-mini'" in refused(tmp_path, model="openai/gpt-4.1-mini")
+    msg = refused(tmp_path, config=make_config(model="openai/gpt-4.1-mini"))
+    assert "attendu 'openai/gpt-4.1-mini'" in msg
+
+
+def without_response(text):
+    """Retire le champ response de la 2e ligne du fichier."""
+    lines = text.splitlines()
+    record = json.loads(lines[1])
+    del record["response"]
+    lines[1] = json.dumps(record, ensure_ascii=False)
+    return "\n".join(lines) + "\n"
+
+
+def test_refus_ligne_sans_reponse(tmp_path):
+    # Sinon la question 1 serait comptée comme faite et jamais relancée.
+    assert "ligne 2 : question '1' sans réponse" in refused(tmp_path, tamper=without_response)
 
 
 def test_refus_question_inconnue(tmp_path):
@@ -377,12 +454,17 @@ def test_cree_le_dossier_de_sortie(tmp_path):
 
 # --- Ligne de commande ----------------------------------------------------------
 
-def cli_args(tmp_path, n_questions, *extra):
+def cli_args(tmp_path, n_questions, *extra, config="A"):
+    """Écrit un fichier de questions et un configs.json (config "A"), renvoie (args, sortie)."""
     questions = write(tmp_path / "q.jsonl",
                       [json.dumps(q) for q in make_questions(n_questions)])
+    configs = tmp_path / "configs.json"
+    configs.write_text(json.dumps({"A": {"room": ROOM, "deployment": DEPLOYMENT,
+                                         "model": MODEL, "reasoning_effort": "none"}}),
+                       encoding="utf-8")
     out = tmp_path / "A.jsonl"
-    args = ["--questions", str(questions), "--room", ROOM, "--deployment", DEPLOYMENT,
-            "--model", MODEL, "--config", "A", "--out", str(out), *extra]
+    args = ["--config", config, "--configs", str(configs), "--questions", str(questions),
+            "--out", str(out), *extra]
     return args, out
 
 
@@ -410,6 +492,42 @@ def test_main_401_code_1(tmp_path, monkeypatch):
     transport, inputs = fake_alive({"question 0": [401]})
     assert main(args, transport) == 1
     assert len(inputs) == 1
+
+
+@pytest.mark.parametrize("config", ["B", "a", "A "])
+def test_main_config_inconnue_code_2(tmp_path, monkeypatch, config):
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    args, out = cli_args(tmp_path, 2, config=config)
+    transport, inputs = fake_alive()
+    assert main(args, transport) == 2
+    assert inputs == []
+    assert not out.exists()
+
+
+def test_main_configs_json_introuvable_code_2(tmp_path, monkeypatch):
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    args, out = cli_args(tmp_path, 2)
+    (tmp_path / "configs.json").rename(tmp_path / "ailleurs.json")
+    transport, inputs = fake_alive()
+    assert main(args, transport) == 2
+    assert inputs == []
+
+
+def test_main_fichier_de_questions_vide_code_2(tmp_path, monkeypatch):
+    # Avant : "0 réponses gardées, 0 échecs" et code 0, comme si tout allait bien.
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    args, out = cli_args(tmp_path, 0)
+    transport, inputs = fake_alive()
+    assert main(args, transport) == 2
+    assert not out.exists()
+
+
+def test_main_limit_negatif_code_2(tmp_path, monkeypatch):
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    args, out = cli_args(tmp_path, 3, "--limit", "-1")
+    transport, inputs = fake_alive()
+    assert main(args, transport) == 2
+    assert inputs == []
 
 
 def test_main_sans_jeton(tmp_path, monkeypatch):

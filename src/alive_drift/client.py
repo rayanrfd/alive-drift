@@ -50,7 +50,7 @@ def make_client(token: str, transport: httpx.BaseTransport | None = None) -> htt
 
 
 def run_once(client: httpx.Client, room_id: str, deployment_id: str,
-             question: str, expected_model: str) -> dict:
+             question: str, expected_model: str, expected_effort: str = "none") -> dict:
     """Envoie la question, renvoie le JSON d'Alive s'il passe check_run.
 
     Lève httpx.HTTPStatusError si Alive répond une erreur (401, 502...),
@@ -64,8 +64,11 @@ def run_once(client: httpx.Client, room_id: str, deployment_id: str,
     }
     response = client.post(url, json=body)
     response.raise_for_status()  # code HTTP 4xx ou 5xx -> exception
-    run = response.json()
-    check_run(run, expected_model)
+    try:
+        run = response.json()
+    except ValueError:  # code 200 mais le corps n'est pas du JSON
+        raise RunRejected("réponse 200 illisible (pas du JSON)") from None
+    check_run(run, expected_model, expected_effort)
     return run
 
 
@@ -78,7 +81,8 @@ def is_retryable(err: Exception) -> bool:
 
 
 def run_with_retries(client: httpx.Client, room_id: str, deployment_id: str,
-                     question: str, expected_model: str, sleep=time.sleep) -> dict:
+                     question: str, expected_model: str, expected_effort: str = "none",
+                     sleep=time.sleep) -> dict:
     """run_once, avec jusqu'à 3 essais si l'échec est passager.
 
     RunRejected n'est JAMAIS réessayé : le run a abouti (donc il est facturé)
@@ -89,7 +93,8 @@ def run_with_retries(client: httpx.Client, room_id: str, deployment_id: str,
     attempts = len(RETRY_DELAYS_S) + 1
     for attempt in range(1, attempts + 1):
         try:
-            return run_once(client, room_id, deployment_id, question, expected_model)
+            return run_once(client, room_id, deployment_id, question,
+                            expected_model, expected_effort)
         except (httpx.HTTPStatusError, httpx.TransportError) as err:
             if attempt == attempts or not is_retryable(err):
                 raise  # dernier essai, ou erreur qui ne passera pas en réessayant

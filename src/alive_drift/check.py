@@ -8,20 +8,21 @@ Règle générale : un champ absent compte comme un échec. On ne suppose
 jamais qu'un champ manquant veut dire "tout va bien".
 """
 
-# Le raisonnement doit être coupé pour tous les modèles (générateur et juges).
-EXPECTED_EFFORT = "none"
-
-
 class RunRejected(Exception):
     """La réponse du run ne doit pas être utilisée."""
 
 
-def check_run(run: dict, expected_model: str) -> None:
+def check_run(run: dict, expected_model: str, expected_effort: str = "none") -> None:
     """Lève RunRejected si la réponse ne doit pas être gardée.
 
-    `run` est la réponse JSON d'Alive, déjà décodée en dict Python.
+    `run` est la réponse JSON d'Alive, déjà décodée en Python.
+    `expected_effort` : l'effort de raisonnement voulu ("none" = coupé).
     Ne renvoie rien si tout est bon.
     """
+    # --- 0. La réponse est bien un objet JSON -------------------------------
+    if not isinstance(run, dict):
+        raise RunRejected(f"réponse mal formée : {type(run).__name__} au lieu d'un objet")
+
     # --- 1. Le run a abouti et a produit du texte -------------------------
     if run.get("status") != "completed":
         raise RunRejected(f"status {run.get('status')!r} au lieu de 'completed'")
@@ -51,6 +52,8 @@ def check_run(run: dict, expected_model: str) -> None:
     if not isinstance(served, list) or len(served) != 1:
         raise RunRejected(f"'served' devrait avoir 1 entrée : {served!r}")
     s = served[0]
+    if not isinstance(s, dict):
+        raise RunRejected(f"served[0] mal formé : {s!r}")
     if s.get("model") != expected_model:
         raise RunRejected(f"servi par {s.get('model')!r}, attendu {expected_model!r}")
     if s.get("substituted") is not False:
@@ -58,8 +61,21 @@ def check_run(run: dict, expected_model: str) -> None:
     if s.get("calls") != 1:
         raise RunRejected(f"{s.get('calls')!r} appels au lieu de 1")
 
-    # --- 6. Le raisonnement est coupé ---------------------------------------
-    if block.get("reasoning_effort") != EXPECTED_EFFORT:
+    # --- 6. Le raisonnement est celui voulu ----------------------------------
+    if block.get("reasoning_effort") != expected_effort:
         raise RunRejected(
-            f"reasoning_effort {block.get('reasoning_effort')!r}, attendu {EXPECTED_EFFORT!r}"
+            f"reasoning_effort {block.get('reasoning_effort')!r}, attendu {expected_effort!r}"
         )
+    # "none" doit être vrai dans les faits : l'étiquette ne suffit pas, le
+    # compteur de tokens de raisonnement doit valoir 0 (absent = échec).
+    if expected_effort == "none":
+        tokens = run.get("tokens")
+        reasoning = tokens.get("reasoning") if isinstance(tokens, dict) else None
+        if type(reasoning) is not int or reasoning != 0:
+            raise RunRejected(f"{reasoning!r} tokens de raisonnement alors qu'il est coupé")
+
+    # --- 7. De quoi retrouver le run et suivre les providers ---------------
+    for label, value in (("execution_id", run.get("execution_id")),
+                         ("provider", s.get("provider"))):
+        if not isinstance(value, str) or not value:
+            raise RunRejected(f"{label} absent")
