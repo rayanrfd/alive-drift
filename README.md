@@ -24,7 +24,9 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   Reprise : relancer la même commande saute les questions déjà dans la sortie
   et retente les autres. Rien n'est jamais écrasé ; un fichier qui n'est pas
   celui de la campagne (autre config, autre modèle, autres questions, ligne
-  abîmée) est refusé sans lancer de run. Pas encore de parallélisme.
+  abîmée) est refusé sans lancer de run.
+  `--workers N` envoie N questions en même temps (défaut 1) ; un seul fil écrit
+  les fichiers. Les lignes sont alors dans l'ordre d'arrivée des réponses.
   Commande : `uv run python -m alive_drift.generate --config sonde --out outputs/sonde.jsonl --limit 3`.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
@@ -52,5 +54,9 @@ uv run pytest -q
 
 - Après un timeout (300 s côté client, 1800 s côté Alive), le nouvel essai peut
   créer un second run facturé.
+- Avec `--workers N`, un arrêt (401, 5 échecs d'affilée) laisse finir les runs
+  déjà partis : jusqu'à N - 1 runs de plus, tous enregistrés.
+- Ctrl-C pendant une campagne parallèle : les runs en cours (N au plus) sont
+  payés mais pas écrits ; la reprise les refait.
 - Un run rejeté est facturé, et retenté à chaque relance ; le compteur des 5
   échecs d'affilée repart de zéro à chaque lancement.

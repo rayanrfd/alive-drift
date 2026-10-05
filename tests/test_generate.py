@@ -62,13 +62,14 @@ def fake_alive(plan=None, on_request=None):
 
 
 def run_generate(questions, out_path, plan=None, on_request=None, *,
-                 config=None, limit=None):
+                 config=None, limit=None, workers=1):
     """Lance generate (config A par défaut). Renvoie (résultat ou exception, questions reçues)."""
     transport, inputs = fake_alive(plan, on_request)
     with make_client(TOKEN, transport) as client:
         try:
             result = generate(client, questions, config or make_config(),
-                              out_path=out_path, limit=limit, sleep=lambda s: None)
+                              out_path=out_path, limit=limit, workers=workers,
+                              sleep=lambda s: None)
         except Exception as err:
             result = err
     return result, inputs

@@ -1,8 +1,8 @@
 """Génère les réponses d'UNE config (A, A_bis ou B) pour une liste de questions.
 
 Pour chaque question : un run Alive (run_with_retries), puis une ligne écrite
-tout de suite dans le fichier de sortie. Une question après l'autre, pas encore
-de parallélisme.
+tout de suite dans le fichier de sortie. Une question après l'autre par
+défaut ; plusieurs en même temps avec --workers N.
 
 Deux fichiers JSONL (une ligne = un objet JSON) :
 - <out>            : les réponses gardées. C'est LA référence : une question est
@@ -25,7 +25,9 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import httpx
@@ -169,11 +171,13 @@ def load_done_ids(out_path: Path, questions: list[dict], config: Config) -> set[
 # --- La boucle -----------------------------------------------------------------
 
 def generate(client: httpx.Client, questions: list[dict], config: Config, *,
-             out_path, limit: int | None = None, sleep=time.sleep) -> tuple[int, int]:
+             out_path, limit: int | None = None, workers: int = 1,
+             sleep=time.sleep) -> tuple[int, int]:
     """Un run par question à faire. Renvoie (réponses gardées, échecs) DE CE LANCEMENT.
 
     `config` : où envoyer les runs et ce qu'on attend d'eux (voir config.py).
     `limit` : ne considérer que les N premières questions (au moins 1).
+    `workers` : nombre de questions envoyées à Alive en même temps (au moins 1).
     Les questions qui ont déjà une ligne dans out_path sont sautées (reprise).
 
     - Réponse gardée  -> une ligne dans out_path, écrite immédiatement.
@@ -183,6 +187,10 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
       échouerait de la même façon.
     - 5 échecs d'affilée -> CampaignStopped.
 
+    Avec workers > 1 : les lignes sont écrites dans l'ordre où les réponses
+    arrivent, pas dans l'ordre des questions. À l'arrêt, les runs déjà partis
+    (workers - 1 au plus) vont au bout et leur résultat est enregistré.
+
     On n'écrase jamais : les deux fichiers sont seulement complétés par la fin.
     Si out_path existe mais n'est pas celui de cette campagne -> ValueError,
     aucun run lancé.
@@ -190,6 +198,8 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
     # questions[:-1] voudrait dire "toutes sauf la dernière" : on refuse.
     if limit is not None and limit < 1:
         raise ValueError(f"limit doit valoir au moins 1 (reçu {limit})")
+    if workers < 1:
+        raise ValueError(f"workers doit valoir au moins 1 (reçu {workers})")
     out_path = Path(out_path)
     errors_path = errors_path_for(out_path)
     # Vérifié contre TOUTES les questions, pas seulement les `limit` premières :
@@ -201,15 +211,55 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
               f"{len(todo)} questions à faire", file=sys.stderr)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    n_ok = n_failed = consecutive = 0
-    for i, question in enumerate(todo, start=1):
+    # --- Une tentative = une question envoyée à Alive ---------------------------
+    # Tourne dans un fil secondaire quand workers > 1 : elle n'écrit RIEN, elle
+    # renvoie seulement (question, run, erreur). Un seul fil écrit : le principal.
+    stopping = threading.Event()  # levé dès qu'on décide d'arrêter la campagne
+
+    def attempt(question: dict):
+        if stopping.is_set():
+            return None  # arrêt demandé : cette question n'est pas envoyée
         try:
             run = run_with_retries(client, config.room, config.deployment,
                                    question["text"], config.model,
                                    config.reasoning_effort, sleep=sleep)
         except (RunRejected, httpx.HTTPStatusError, httpx.TransportError) as err:
+            return question, None, err
+        return question, run, None
+
+    # --- Les résultats, un par un ----------------------------------------------
+    if workers == 1:
+        pool = None
+        results = map(attempt, todo)  # paresseux : la question suivante ne part
+        #                               qu'une fois la précédente traitée ci-dessous
+    else:
+        pool = ThreadPoolExecutor(max_workers=workers)
+        futures = [pool.submit(attempt, question) for question in todo]
+        results = (future.result() for future in as_completed(futures))  # ordre d'arrivée
+
+    # --- Traitement, toujours dans le fil principal ------------------------------
+    n_ok = n_failed = consecutive = 0
+    stop = None  # l'exception qui arrête la campagne, levée une fois tout rangé
+    try:
+        for result in results:
+            if result is None:
+                continue  # question non envoyée (arrêt en cours)
+            question, run, err = result
+            i = n_ok + n_failed + 1
+
+            if err is None:
+                append_line(out_path, make_record(question, run, config))
+                n_ok += 1
+                consecutive = 0
+                print(f"[{i}/{len(todo)}] question {question['id']} : ok", file=sys.stderr)
+                continue
+
             if not isinstance(err, RunRejected) and not is_retryable(err):
-                raise  # erreur de notre côté : inutile de continuer
+                # Erreur de notre côté (401, 404...) : inutile de continuer.
+                stop = stop or err
+                stopping.set()
+                continue
+
             append_line(errors_path, {
                 "question_id": question["id"],
                 "config": config.name,
@@ -221,16 +271,17 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
             consecutive += 1
             print(f"[{i}/{len(todo)}] question {question['id']} : ÉCHEC "
                   f"({type(err).__name__})", file=sys.stderr)
-            if consecutive >= MAX_CONSECUTIVE_FAILURES:
-                raise CampaignStopped(
-                    f"{consecutive} échecs d'affilée, arrêt à la question {question['id']}"
-                ) from err
-            continue
+            if consecutive >= MAX_CONSECUTIVE_FAILURES and stop is None:
+                stop = CampaignStopped(
+                    f"{consecutive} échecs d'affilée, arrêt à la question {question['id']}")
+                stopping.set()
+    finally:
+        stopping.set()  # même sur une erreur imprévue : plus aucun envoi
+        if pool is not None:
+            pool.shutdown()  # attend la fin des runs déjà partis
 
-        append_line(out_path, make_record(question, run, config))
-        n_ok += 1
-        consecutive = 0
-        print(f"[{i}/{len(todo)}] question {question['id']} : ok", file=sys.stderr)
+    if stop is not None:
+        raise stop
     return n_ok, n_failed
 
 
@@ -244,6 +295,7 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     parser.add_argument("--questions", default="data/healthbench.jsonl", help="JSONL {id, text}")
     parser.add_argument("--out", required=True, help="fichier de sortie, ex. outputs/A.jsonl")
     parser.add_argument("--limit", type=int, default=None, help="ne prendre que les N premières questions")
+    parser.add_argument("--workers", type=int, default=1, help="questions envoyées en même temps (défaut 1)")
     args = parser.parse_args(argv)
 
     token = os.environ.get("ALIVE_TOKEN")
@@ -256,8 +308,8 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
             config = load_config(args.configs, args.config)
             questions = load_questions(args.questions)
             n_ok, n_failed = generate(client, questions, config, out_path=args.out,
-                                      limit=args.limit, sleep=sleep)
-        except (ValueError, OSError) as err:  # config, questions, limit ou sortie invalide ;
+                                      limit=args.limit, workers=args.workers, sleep=sleep)
+        except (ValueError, OSError) as err:  # config, questions, limit, workers ou sortie invalide ;
             # OSError = fichier introuvable ou illisible
             print(f"REFUS : {err}", file=sys.stderr)
             return 2
