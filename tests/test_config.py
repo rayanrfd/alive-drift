@@ -68,6 +68,25 @@ def test_une_config_abimee_ne_bloque_pas_les_autres(tmp_path):
     assert load_config(write_configs(tmp_path, configs), "B").deployment == "dp-B"
 
 
+def test_nom_de_config_en_double_refuse(tmp_path):
+    # Sans contrôle, Python garderait la seconde "A" : la campagne A partirait sur dp-B.
+    path = tmp_path / "configs.json"
+    path.write_text('''{
+      "A": {"room": "th-1", "deployment": "dp-A", "model": "m", "reasoning_effort": "none"},
+      "A": {"room": "th-1", "deployment": "dp-B", "model": "m", "reasoning_effort": "none"}
+    }''', encoding="utf-8")
+    with pytest.raises(ValueError, match="clés en double"):
+        load_config(path, "A")
+
+
+def test_champ_en_double_refuse(tmp_path):
+    path = tmp_path / "configs.json"
+    path.write_text('''{"A": {"room": "th-1", "deployment": "dp-A", "deployment": "dp-B",
+                             "model": "m", "reasoning_effort": "none"}}''', encoding="utf-8")
+    with pytest.raises(ValueError, match="clés en double"):
+        load_config(path, "A")
+
+
 def test_fichier_pas_un_objet_refuse(tmp_path):
     with pytest.raises(ValueError, match="doit contenir un objet"):
         load_config(write_configs(tmp_path, ["A"]), "A")

@@ -12,6 +12,10 @@ Deux fichiers JSONL (une ligne = un objet JSON) :
 Reprise : relancer la même commande saute les questions déjà dans <out> et
 retente les autres (y compris celles qui avaient échoué).
 
+Ctrl-C : plus aucune question n'est envoyée, les runs en cours vont au bout et
+sont rangés, puis le programme s'arrête. Un second Ctrl-C abandonne l'attente
+(les réponses en cours sont alors perdues).
+
 La config (déploiement, modèle, effort de raisonnement) est lue dans
 configs.json par son nom : voir config.py.
 
@@ -25,9 +29,8 @@ import argparse
 import json
 import os
 import sys
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import httpx
@@ -40,6 +43,10 @@ from alive_drift.config import Config, load_config
 # (modèle en panne, déploiement mal réglé). Un run rejeté est facturé : sans
 # cette limite, un mauvais réglage coûterait 1000 runs inutiles.
 MAX_CONSECUTIVE_FAILURES = 5
+
+# Plafond du nombre de questions envoyées en même temps. À l'arrêt, les runs
+# en cours vont au bout : ce plafond borne donc aussi ce qu'un arrêt peut coûter.
+MAX_WORKERS = 32
 
 
 class CampaignStopped(Exception):
@@ -62,6 +69,8 @@ def load_questions(path) -> list[dict]:
             if not line.strip():
                 continue  # ligne vide tolérée
             row = json.loads(line)
+            if not isinstance(row, dict):
+                raise ValueError(f"{path} ligne {n} : doit être un objet {{id, text}}")
             qid, text = row.get("id"), row.get("text")
             # Le fichier HealthBench a des ids entiers (0, 1, 2...) : on en fait du texte.
             # `type(...) is int` et non isinstance : True/False sont aussi des int en Python.
@@ -88,11 +97,15 @@ def make_record(question: dict, run: dict, config: Config) -> dict:
     `run` a passé check_run : le bloc model et served[0] existent forcément.
     """
     served = run["model"]["served"][0]
-    tokens = run.get("tokens") or {}
+    tokens = run.get("tokens")
+    if not isinstance(tokens, dict):
+        tokens = {}
     return {
         "question_id": question["id"],
         "config": config.name,
+        "room_id": config.room,
         "deployment_id": config.deployment,
+        "reasoning_effort": config.reasoning_effort,
         "question": question["text"],
         "response": run["content"],
         "model": served["model"],
@@ -119,18 +132,19 @@ def errors_path_for(out_path: Path) -> Path:
 
 # --- Reprise -------------------------------------------------------------------
 
-def load_done_ids(out_path: Path, questions: list[dict], config: Config) -> set[str]:
-    """Ids des questions qui ont déjà une réponse dans out_path.
+def load_done(out_path: Path, questions: list[dict], config: Config) -> tuple[set[str], set[str]]:
+    """Ce qui est déjà dans out_path : (ids des questions faites, execution_id utilisés).
 
-    Ensemble vide si le fichier n'existe pas (premier lancement).
+    Deux ensembles vides si le fichier n'existe pas (premier lancement).
 
     Avant de compléter un fichier, on vérifie qu'il est bien celui de CETTE
     campagne. Lève ValueError à la première ligne qui ne colle pas : on ne
-    mélange jamais deux configs, deux déploiements, deux modèles ou deux jeux
-    de questions, et on ne répare pas le fichier tout seul.
+    mélange jamais deux configs, deux déploiements, deux modèles, deux efforts
+    de raisonnement ou deux jeux de questions, et on ne répare pas le fichier
+    tout seul.
     """
     if not out_path.exists():
-        return set()
+        return set(), set()
     content = out_path.read_text(encoding="utf-8")
     # Chaque ligne est écrite avec son retour à la ligne. S'il manque à la fin,
     # la dernière écriture a été coupée : la prochaine ligne s'y collerait.
@@ -139,6 +153,7 @@ def load_done_ids(out_path: Path, questions: list[dict], config: Config) -> set[
 
     text_by_id = {q["id"]: q["text"] for q in questions}
     done = set()
+    executions = set()
     for n, line in enumerate(content.splitlines(), start=1):
         where = f"{out_path} ligne {n}"
         try:
@@ -148,13 +163,20 @@ def load_done_ids(out_path: Path, questions: list[dict], config: Config) -> set[
         if not isinstance(record, dict):
             raise ValueError(f"{where} : ligne illisible")
         qid = record.get("question_id")
-        if record.get("config") != config.name:
-            raise ValueError(f"{where} : config {record.get('config')!r}, attendu {config.name!r}")
-        if record.get("deployment_id") != config.deployment:
-            raise ValueError(f"{where} : déploiement {record.get('deployment_id')!r}, "
-                             f"attendu {config.deployment!r}")
-        if record.get("model") != config.model:
-            raise ValueError(f"{where} : modèle {record.get('model')!r}, attendu {config.model!r}")
+        # Chaque ligne doit venir de la même config, champ par champ.
+        for label, key, expected in (
+            ("config", "config", config.name),
+            ("room", "room_id", config.room),
+            ("déploiement", "deployment_id", config.deployment),
+            ("modèle", "model", config.model),
+            ("effort de raisonnement", "reasoning_effort", config.reasoning_effort),
+        ):
+            if record.get(key) != expected:
+                raise ValueError(f"{where} : {label} {record.get(key)!r}, attendu {expected!r}")
+        # Même règle que check_run : "none" veut dire 0 token de raisonnement.
+        reasoning = record.get("reasoning_tokens")
+        if config.reasoning_effort == "none" and (type(reasoning) is not int or reasoning != 0):
+            raise ValueError(f"{where} : {reasoning!r} tokens de raisonnement alors qu'il est coupé")
         if qid not in text_by_id:
             raise ValueError(f"{where} : question {qid!r} absente du fichier de questions")
         if record.get("question") != text_by_id[qid]:
@@ -164,8 +186,14 @@ def load_done_ids(out_path: Path, questions: list[dict], config: Config) -> set[
         response = record.get("response")
         if not isinstance(response, str) or not response.strip():
             raise ValueError(f"{where} : question {qid!r} sans réponse")
+        execution = record.get("execution_id")
+        if not isinstance(execution, str) or not execution:
+            raise ValueError(f"{where} : execution_id absent")
+        if execution in executions:
+            raise ValueError(f"{where} : execution_id {execution!r} en double")
         done.add(qid)
-    return done
+        executions.add(execution)
+    return done, executions
 
 
 # --- La boucle -----------------------------------------------------------------
@@ -177,7 +205,7 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
 
     `config` : où envoyer les runs et ce qu'on attend d'eux (voir config.py).
     `limit` : ne considérer que les N premières questions (au moins 1).
-    `workers` : nombre de questions envoyées à Alive en même temps (au moins 1).
+    `workers` : nombre de questions envoyées à Alive en même temps (1 à 32).
     Les questions qui ont déjà une ligne dans out_path sont sautées (reprise).
 
     - Réponse gardée  -> une ligne dans out_path, écrite immédiatement.
@@ -186,10 +214,13 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
     - Erreur de notre côté (401, 404...) -> on arrête tout : chaque question
       échouerait de la même façon.
     - 5 échecs d'affilée -> CampaignStopped.
+    - Une réponse dont l'execution_id a déjà servi -> comptée comme un échec.
+    - Ctrl-C -> KeyboardInterrupt, levée une fois les runs en cours rangés.
 
-    Avec workers > 1 : les lignes sont écrites dans l'ordre où les réponses
-    arrivent, pas dans l'ordre des questions. À l'arrêt, les runs déjà partis
-    (workers - 1 au plus) vont au bout et leur résultat est enregistré.
+    Une question n'est envoyée que s'il y a une place libre parmi les `workers`
+    ET qu'aucun arrêt n'est décidé. À l'arrêt il y a donc au plus `workers`
+    runs en cours ; ils vont au bout et leur résultat est enregistré.
+    Avec workers > 1, les lignes sont dans l'ordre d'arrivée des réponses.
 
     On n'écrase jamais : les deux fichiers sont seulement complétés par la fin.
     Si out_path existe mais n'est pas celui de cette campagne -> ValueError,
@@ -198,13 +229,13 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
     # questions[:-1] voudrait dire "toutes sauf la dernière" : on refuse.
     if limit is not None and limit < 1:
         raise ValueError(f"limit doit valoir au moins 1 (reçu {limit})")
-    if workers < 1:
-        raise ValueError(f"workers doit valoir au moins 1 (reçu {workers})")
+    if not 1 <= workers <= MAX_WORKERS:
+        raise ValueError(f"workers doit être entre 1 et {MAX_WORKERS} (reçu {workers})")
     out_path = Path(out_path)
     errors_path = errors_path_for(out_path)
     # Vérifié contre TOUTES les questions, pas seulement les `limit` premières :
     # un fichier de 10 réponses reste valide si on relance avec --limit 3.
-    done = load_done_ids(out_path, questions, config)
+    done, executions = load_done(out_path, questions, config)
     todo = [q for q in questions[:limit] if q["id"] not in done]
     if done:
         print(f"reprise : {len(done)} réponses déjà dans {out_path}, "
@@ -212,13 +243,9 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # --- Une tentative = une question envoyée à Alive ---------------------------
-    # Tourne dans un fil secondaire quand workers > 1 : elle n'écrit RIEN, elle
-    # renvoie seulement (question, run, erreur). Un seul fil écrit : le principal.
-    stopping = threading.Event()  # levé dès qu'on décide d'arrêter la campagne
-
+    # Tourne dans un fil secondaire : elle n'écrit RIEN, elle renvoie seulement
+    # (question, run, erreur). Un seul fil écrit les fichiers : le principal.
     def attempt(question: dict):
-        if stopping.is_set():
-            return None  # arrêt demandé : cette question n'est pas envoyée
         try:
             run = run_with_retries(client, config.room, config.deployment,
                                    question["text"], config.model,
@@ -227,58 +254,77 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
             return question, None, err
         return question, run, None
 
-    # --- Les résultats, un par un ----------------------------------------------
-    if workers == 1:
-        pool = None
-        results = map(attempt, todo)  # paresseux : la question suivante ne part
-        #                               qu'une fois la précédente traitée ci-dessous
-    else:
-        pool = ThreadPoolExecutor(max_workers=workers)
-        futures = [pool.submit(attempt, question) for question in todo]
-        results = (future.result() for future in as_completed(futures))  # ordre d'arrivée
-
-    # --- Traitement, toujours dans le fil principal ------------------------------
+    pool = ThreadPoolExecutor(max_workers=workers)
+    remaining = iter(todo)   # les questions pas encore envoyées
+    in_flight = set()        # les envois en cours (au plus `workers`)
     n_ok = n_failed = consecutive = 0
-    stop = None  # l'exception qui arrête la campagne, levée une fois tout rangé
+    stop = None              # l'exception qui arrête la campagne, levée une fois tout rangé
+    interrupted = False      # Ctrl-C reçu une fois
+    forced = False           # Ctrl-C reçu deux fois : on n'attend plus
     try:
-        for result in results:
-            if result is None:
-                continue  # question non envoyée (arrêt en cours)
-            question, run, err = result
-            i = n_ok + n_failed + 1
+        while True:
+            # --- Envoyer : seulement s'il y a de la place et pas d'arrêt décidé ---
+            while stop is None and len(in_flight) < workers:
+                question = next(remaining, None)
+                if question is None:
+                    break
+                in_flight.add(pool.submit(attempt, question))
+            if not in_flight:
+                break  # plus rien en cours, plus rien à envoyer
 
-            if err is None:
-                append_line(out_path, make_record(question, run, config))
-                n_ok += 1
-                consecutive = 0
-                print(f"[{i}/{len(todo)}] question {question['id']} : ok", file=sys.stderr)
+            # --- Attendre qu'au moins un envoi se termine ---------------------------
+            try:
+                finished, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
+            except KeyboardInterrupt:
+                if interrupted:
+                    forced = True
+                    raise
+                interrupted = True
+                stop = stop or KeyboardInterrupt()
+                print(f"Ctrl-C : plus aucun envoi, j'attends les {len(in_flight)} runs en cours "
+                      "(Ctrl-C à nouveau pour abandonner)", file=sys.stderr)
                 continue
 
-            if not isinstance(err, RunRejected) and not is_retryable(err):
-                # Erreur de notre côté (401, 404...) : inutile de continuer.
-                stop = stop or err
-                stopping.set()
-                continue
+            # --- Ranger chaque résultat, toujours dans le fil principal -----------
+            for future in finished:
+                question, run, err = future.result()
+                i = n_ok + n_failed + 1
 
-            append_line(errors_path, {
-                "question_id": question["id"],
-                "config": config.name,
-                "deployment_id": config.deployment,
-                "error_type": type(err).__name__,
-                "error": str(err),
-            })
-            n_failed += 1
-            consecutive += 1
-            print(f"[{i}/{len(todo)}] question {question['id']} : ÉCHEC "
-                  f"({type(err).__name__})", file=sys.stderr)
-            if consecutive >= MAX_CONSECUTIVE_FAILURES and stop is None:
-                stop = CampaignStopped(
-                    f"{consecutive} échecs d'affilée, arrêt à la question {question['id']}")
-                stopping.set()
+                if err is None and run["execution_id"] in executions:
+                    # Alive a rendu la réponse d'un run déjà enregistré.
+                    err = RunRejected(f"execution_id {run['execution_id']!r} déjà enregistré")
+
+                if err is None:
+                    append_line(out_path, make_record(question, run, config))
+                    executions.add(run["execution_id"])
+                    n_ok += 1
+                    consecutive = 0
+                    print(f"[{i}/{len(todo)}] question {question['id']} : ok", file=sys.stderr)
+                    continue
+
+                if not isinstance(err, RunRejected) and not is_retryable(err):
+                    # Erreur de notre côté (401, 404...) : inutile de continuer.
+                    stop = stop or err
+                    continue
+
+                append_line(errors_path, {
+                    "question_id": question["id"],
+                    "config": config.name,
+                    "deployment_id": config.deployment,
+                    "error_type": type(err).__name__,
+                    "error": str(err),
+                })
+                n_failed += 1
+                consecutive += 1
+                print(f"[{i}/{len(todo)}] question {question['id']} : ÉCHEC "
+                      f"({type(err).__name__})", file=sys.stderr)
+                if consecutive >= MAX_CONSECUTIVE_FAILURES and stop is None:
+                    stop = CampaignStopped(
+                        f"{consecutive} échecs d'affilée, arrêt à la question {question['id']}")
     finally:
-        stopping.set()  # même sur une erreur imprévue : plus aucun envoi
-        if pool is not None:
-            pool.shutdown()  # attend la fin des runs déjà partis
+        # Normalement plus rien n'est en cours ici. Sur une erreur imprévue, on
+        # attend les runs partis ; après un second Ctrl-C, on n'attend pas.
+        pool.shutdown(wait=not forced, cancel_futures=True)
 
     if stop is not None:
         raise stop
@@ -295,7 +341,7 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     parser.add_argument("--questions", default="data/healthbench.jsonl", help="JSONL {id, text}")
     parser.add_argument("--out", required=True, help="fichier de sortie, ex. outputs/A.jsonl")
     parser.add_argument("--limit", type=int, default=None, help="ne prendre que les N premières questions")
-    parser.add_argument("--workers", type=int, default=1, help="questions envoyées en même temps (défaut 1)")
+    parser.add_argument("--workers", type=int, default=1, help="questions envoyées en même temps (1 à 32, défaut 1)")
     args = parser.parse_args(argv)
 
     token = os.environ.get("ALIVE_TOKEN")
@@ -316,6 +362,9 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
         except (CampaignStopped, httpx.HTTPStatusError) as err:
             print(f"ARRÊT : {err}", file=sys.stderr)
             return 1
+        except KeyboardInterrupt:
+            print("INTERROMPU : relancer la même commande pour reprendre.", file=sys.stderr)
+            return 130  # code de sortie habituel après Ctrl-C
     print(f"{n_ok} réponses gardées, {n_failed} échecs à ce lancement -> {args.out}")
     return 0 if n_failed == 0 else 1
 

@@ -4,10 +4,15 @@ Le faux serveur répond selon la QUESTION reçue : `plan` associe un texte de
 question à la liste de ses réponses successives (une par appel). Une question
 absente du plan reçoit la vraie sortie du 01/10 (code 200).
 Étapes possibles : 200, "gemini" (200 mais servi par Gemini), "html" (200 mais
-le contenu n'est pas du JSON), ou un code d'erreur.
+le contenu n'est pas du JSON), "same" (200 avec toujours le même execution_id),
+ou un code d'erreur.
+
+Comme le vrai Alive, le faux serveur donne un execution_id différent à chaque
+run (unique_run), sauf pour l'étape "same".
 """
 
 import copy
+import itertools
 import json
 from pathlib import Path
 
@@ -29,9 +34,19 @@ GEMINI_RUN = copy.deepcopy(REAL_RUN)
 GEMINI_RUN["model"]["served"][0]["model"] = "google/gemini-3.1-flash-lite"
 
 
-def make_config(name="A", deployment=DEPLOYMENT, model=MODEL, effort="none"):
-    return Config(name=name, room=ROOM, deployment=deployment, model=model,
+def make_config(name="A", deployment=DEPLOYMENT, model=MODEL, effort="none", room=ROOM):
+    return Config(name=name, room=room, deployment=deployment, model=model,
                   reasoning_effort=effort)
+
+
+_run_numbers = itertools.count(1)
+
+
+def unique_run(body=REAL_RUN):
+    """Copie de `body` avec un execution_id neuf : ex-test-1, ex-test-2..."""
+    run = copy.deepcopy(body)
+    run["execution_id"] = f"ex-test-{next(_run_numbers)}"
+    return run
 
 
 def make_questions(n):
@@ -51,9 +66,11 @@ def fake_alive(plan=None, on_request=None):
         steps = plan.get(text)
         step = steps.pop(0) if steps else 200
         if step == 200:
-            return httpx.Response(200, json=REAL_RUN)
+            return httpx.Response(200, json=unique_run())
         if step == "gemini":
-            return httpx.Response(200, json=GEMINI_RUN)
+            return httpx.Response(200, json=unique_run(GEMINI_RUN))
+        if step == "same":
+            return httpx.Response(200, json=REAL_RUN)  # execution_id fixe
         if step == "html":
             return httpx.Response(200, content=b"<html>page d'erreur</html>")
         return httpx.Response(step, json={"detail": f"erreur {step}"})
@@ -111,6 +128,7 @@ def test_load_questions_id_entier_devient_texte(tmp_path):
     (['{"id": "0", "text": "  "}'], "'text' vide"),
     (['{"id": "0"}'], "'text' vide"),
     (['{"text": "a"}'], "'id' manquant"),
+    (['[1, 2]'], "doit être un objet"),
     ([""], "aucune question"),
 ])
 def test_load_questions_refuse(tmp_path, lines, expected_words):
@@ -140,15 +158,18 @@ def test_trois_questions(tmp_path):
     assert inputs == ["question 0", "question 1", "question 2"]  # une par run, dans l'ordre
     records = read_jsonl(out)
     assert [r["question_id"] for r in records] == ["0", "1", "2"]
-    assert records[1] == {
+    record = records[1]
+    assert record.pop("execution_id").startswith("ex-test-")  # celui du faux serveur
+    assert record == {
         "question_id": "1",
         "config": "A",
+        "room_id": "th-Z7jWvllIYv1Eoa9z",
         "deployment_id": "dp-E8dfWyMHc4Q7oXnN",
+        "reasoning_effort": "none",
         "question": "question 1",
         "response": REAL_RUN["content"],
         "model": "mistralai/mistral-small-24b-instruct-2501",
         "provider": "DeepInfra",
-        "execution_id": "ex-WxDjC6ClZzye4T0a",
         "prompt_tokens": 33,
         "completion_tokens": 181,
         "reasoning_tokens": 0,
@@ -219,6 +240,30 @@ def test_200_mal_forme_note_et_on_continue(tmp_path):
     assert read_jsonl(errors_path_for(out))[0]["error_type"] == "RunRejected"
 
 
+# --- Un execution_id ne sert qu'une fois ----------------------------------------
+
+def test_execution_id_deja_vu_compte_comme_echec(tmp_path):
+    # Alive rend deux fois le même run pour deux questions différentes.
+    out = tmp_path / "A.jsonl"
+    plan = {"question 0": ["same"], "question 1": ["same"]}
+    result, _ = run_generate(make_questions(3), out, plan=plan)
+
+    assert result == (2, 1)
+    assert [r["question_id"] for r in read_jsonl(out)] == ["0", "2"]
+    errors = read_jsonl(errors_path_for(out))
+    assert errors[0]["question_id"] == "1"
+    assert "déjà enregistré" in errors[0]["error"]
+
+
+def test_execution_id_deja_dans_le_fichier_refuse_a_la_reprise(tmp_path):
+    out = tmp_path / "A.jsonl"
+    run_generate(make_questions(2), out, plan={"question 0": ["same"]}, limit=1)
+    result, _ = run_generate(make_questions(2), out, plan={"question 1": ["same"]})
+
+    assert result == (0, 1)
+    assert [r["question_id"] for r in read_jsonl(out)] == ["0"]
+
+
 # --- La config décide où partent les runs et ce qu'on attend -------------------
 
 def test_les_runs_partent_vers_le_deploiement_de_la_config(tmp_path):
@@ -233,7 +278,22 @@ def test_les_runs_partent_vers_le_deploiement_de_la_config(tmp_path):
     with make_client(TOKEN, httpx.MockTransport(handler)) as client:
         generate(client, make_questions(1), config, out_path=tmp_path / "A.jsonl")
     assert urls == ["https://brain-bzh.alive.dev/api/v1/threads/th-ROOM/deployments/dp-DEPLOY/runs"]
-    assert read_jsonl(tmp_path / "A.jsonl")[0]["deployment_id"] == "dp-DEPLOY"
+    record = read_jsonl(tmp_path / "A.jsonl")[0]
+    assert record["deployment_id"] == "dp-DEPLOY"
+    assert record["room_id"] == "th-ROOM"
+
+
+def test_tokens_mal_formes_avec_effort_high_ne_plante_pas(tmp_path):
+    # Avec un effort autre que "none", le bloc tokens n'est pas vérifié : s'il est
+    # cassé, on enregistre des compteurs vides au lieu de planter.
+    body = copy.deepcopy(REAL_RUN)
+    body["model"]["reasoning_effort"] = "high"
+    body["tokens"] = "pas un objet"
+    out = tmp_path / "A.jsonl"
+    with make_client(TOKEN, httpx.MockTransport(lambda r: httpx.Response(200, json=body))) as client:
+        result = generate(client, make_questions(1), make_config(effort="high"), out_path=out)
+    assert result == (1, 0)
+    assert read_jsonl(out)[0]["completion_tokens"] is None
 
 
 def test_effort_de_la_config_verifie(tmp_path):
@@ -395,6 +455,47 @@ def test_refus_autre_deploiement(tmp_path):
 def test_refus_autre_modele(tmp_path):
     msg = refused(tmp_path, config=make_config(model="openai/gpt-4.1-mini"))
     assert "attendu 'openai/gpt-4.1-mini'" in msg
+
+
+def test_refus_autre_effort_de_raisonnement(tmp_path):
+    # configs.json est passé de "none" à "high" entre deux lancements.
+    msg = refused(tmp_path, config=make_config(effort="high"))
+    assert "effort de raisonnement 'none', attendu 'high'" in msg
+
+
+def test_refus_autre_room(tmp_path):
+    assert "room 'th-Z7jWvllIYv1Eoa9z', attendu 'th-AUTRE'" in refused(
+        tmp_path, config=make_config(room="th-AUTRE"))
+
+
+def edit_line(index, **changes):
+    """Fabrique un `tamper` qui modifie des champs de la ligne `index` (0 = première)."""
+    def tamper(text):
+        lines = text.splitlines()
+        record = json.loads(lines[index])
+        record.update(changes)
+        lines[index] = json.dumps(record, ensure_ascii=False)
+        return "\n".join(lines) + "\n"
+    return tamper
+
+
+def test_refus_ligne_avec_tokens_de_raisonnement(tmp_path):
+    # Une ancienne ligne où le modèle a raisonné alors que la config dit "none".
+    msg = refused(tmp_path, tamper=edit_line(1, reasoning_tokens=42))
+    assert "ligne 2 : 42 tokens de raisonnement" in msg
+
+
+def test_refus_execution_id_en_double_dans_le_fichier(tmp_path):
+    # Deux questions qui portent le même run : l'une des deux réponses n'est pas la sienne.
+    def same_id(text):
+        first = json.loads(text.splitlines()[0])["execution_id"]
+        return edit_line(2, execution_id=first)(text)
+    msg = refused(tmp_path, tamper=same_id)
+    assert "ligne 3 : execution_id" in msg and "en double" in msg
+
+
+def test_refus_execution_id_absent_dans_le_fichier(tmp_path):
+    assert "ligne 1 : execution_id absent" in refused(tmp_path, tamper=edit_line(0, execution_id=""))
 
 
 def without_response(text):

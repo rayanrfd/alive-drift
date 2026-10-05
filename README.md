@@ -45,6 +45,8 @@ uv run pytest -q
 
 ## Règles d'usage
 
+- Ctrl-C une fois pour arrêter proprement, puis relancer la même commande pour
+  reprendre.
 - Ne jamais lancer deux fois la même commande en parallèle (deux processus
   écriraient les mêmes questions).
 - Le fichier de sortie n'est pas trié après une reprise : toujours retrouver une
@@ -54,9 +56,10 @@ uv run pytest -q
 
 - Après un timeout (300 s côté client, 1800 s côté Alive), le nouvel essai peut
   créer un second run facturé.
-- Avec `--workers N`, un arrêt (401, 5 échecs d'affilée) laisse finir les runs
-  déjà partis : jusqu'à N - 1 runs de plus, tous enregistrés.
-- Ctrl-C pendant une campagne parallèle : les runs en cours (N au plus) sont
-  payés mais pas écrits ; la reprise les refait.
+- Avec `--workers N` (32 au plus), un arrêt (401, 5 échecs d'affilée, Ctrl-C)
+  n'envoie plus rien et laisse finir les runs en cours (N au plus), tous
+  enregistrés. Un run en attente entre deux essais termine ses essais.
+- Un second Ctrl-C abandonne l'attente : les runs en cours sont payés mais pas
+  écrits ; la reprise les refait.
 - Un run rejeté est facturé, et retenté à chaque relance ; le compteur des 5
   échecs d'affilée repart de zéro à chaque lancement.

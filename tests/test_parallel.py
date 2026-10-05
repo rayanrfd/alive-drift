@@ -7,8 +7,9 @@ Mêmes outils que test_generate.py (faux serveur, run_generate). Deux ajouts :
   chaque réponse est rangée avec SA question.
 """
 
-import copy
 import json
+import os
+import signal
 import threading
 import time
 
@@ -17,9 +18,9 @@ import pytest
 
 from alive_drift.client import make_client
 from alive_drift.generate import CampaignStopped, errors_path_for, generate, main
-from test_check import REAL_RUN
 from test_generate import (
     TOKEN, cli_args, fake_alive, make_config, make_questions, read_jsonl, run_generate,
+    unique_run,
 )
 
 
@@ -38,7 +39,7 @@ def test_chaque_reponse_reste_avec_sa_question(tmp_path):
     def handler(request):
         text = json.loads(request.content)["input"]
         time.sleep(0.03 if text.endswith(("0", "5")) else 0.001)  # arrivées dans le désordre
-        body = copy.deepcopy(REAL_RUN)
+        body = unique_run()
         body["content"] = f"réponse à {text}"
         return httpx.Response(200, json=body)
 
@@ -70,7 +71,7 @@ def max_in_flight(tmp_path, workers, n_questions=12):
         time.sleep(0.03)
         with lock:
             state["now"] -= 1
-        return httpx.Response(200, json=REAL_RUN)
+        return httpx.Response(200, json=unique_run())
 
     with make_client(TOKEN, httpx.MockTransport(handler)) as client:
         generate(client, make_questions(n_questions), make_config(),
@@ -133,6 +134,78 @@ def test_cinq_echecs_arretent_en_parallele(tmp_path):
     assert len(read_jsonl(errors_path_for(out))) == len(inputs)  # chacun est noté
 
 
+def test_arret_borne_meme_si_les_reponses_sont_instantanees(tmp_path):
+    # Le cas trouvé à la relecture : 1000 rejets qui reviennent sans aucun délai.
+    # Borne exacte : les 5 échecs, plus au pire les 3 autres runs alors en cours.
+    out = tmp_path / "A.jsonl"
+    plan = {f"question {i}": ["gemini"] for i in range(1000)}
+    result, inputs = run_generate(make_questions(1000), out, plan=plan, workers=4)
+    assert isinstance(result, CampaignStopped)
+    assert 5 <= len(inputs) <= 5 + 3
+    assert len(read_jsonl(errors_path_for(out))) == len(inputs)
+
+
+# --- Ctrl-C ----------------------------------------------------------------------
+
+def ctrl_c_server(on_question, presses, tail=0.05):
+    """Faux serveur lent. Pendant `on_question`, il simule `presses` appuis sur Ctrl-C."""
+    inputs = []
+
+    def handler(request):
+        text = json.loads(request.content)["input"]
+        inputs.append(text)
+        if text == on_question:
+            for _ in range(presses):
+                time.sleep(0.05)  # le fil principal est alors en attente
+                os.kill(os.getpid(), signal.SIGINT)  # le signal qu'envoie Ctrl-C
+            time.sleep(tail)
+        else:
+            time.sleep(0.03)
+        return httpx.Response(200, json=unique_run())
+
+    return httpx.MockTransport(handler), inputs
+
+
+def test_ctrl_c_range_les_runs_en_cours(tmp_path):
+    out = tmp_path / "A.jsonl"
+    transport, inputs = ctrl_c_server("question 4", presses=1)
+    interrupted = False
+    with make_client(TOKEN, transport) as client:
+        try:
+            generate(client, make_questions(30), make_config(), out_path=out, workers=3)
+        except KeyboardInterrupt:
+            interrupted = True
+
+    assert interrupted
+    assert len(inputs) < 30  # plus aucun envoi après Ctrl-C
+    # Chaque question envoyée a sa ligne : aucun run payé n'est perdu.
+    assert sorted(ids_in(out)) == sorted(text.split()[1] for text in inputs)
+
+
+def test_second_ctrl_c_abandonne_l_attente(tmp_path):
+    out = tmp_path / "A.jsonl"
+    transport, inputs = ctrl_c_server("question 0", presses=2, tail=1.0)
+    start = time.monotonic()
+    interrupted = False
+    with make_client(TOKEN, transport) as client:
+        try:
+            generate(client, make_questions(5), make_config(), out_path=out, workers=1)
+        except KeyboardInterrupt:
+            interrupted = True
+
+    assert interrupted
+    assert time.monotonic() - start < 0.7  # rendu sans attendre la seconde restante
+    assert ids_in(out) == []               # la réponse en cours est abandonnée
+
+
+def test_main_ctrl_c_code_130(tmp_path, monkeypatch):
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    args, out = cli_args(tmp_path, 20, "--workers", "2")
+    transport, inputs = ctrl_c_server("question 3", presses=1)
+    assert main(args, transport) == 130
+    assert len(ids_in(out)) == len(inputs) < 20
+
+
 # --- Reprise ---------------------------------------------------------------------
 
 def test_reprise_en_parallele(tmp_path):
@@ -148,12 +221,12 @@ def test_reprise_en_parallele(tmp_path):
 
 # --- workers invalide --------------------------------------------------------------
 
-@pytest.mark.parametrize("workers", [0, -2])
+@pytest.mark.parametrize("workers", [0, -2, 33])
 def test_workers_invalide_refuse(tmp_path, workers):
     out = tmp_path / "A.jsonl"
     result, inputs = run_generate(make_questions(3), out, workers=workers)
     assert isinstance(result, ValueError)
-    assert "workers doit valoir au moins 1" in str(result)
+    assert "workers doit être entre 1 et 32" in str(result)
     assert inputs == []
     assert not out.exists()
 
