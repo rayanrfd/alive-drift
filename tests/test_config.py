@@ -108,3 +108,16 @@ def test_config_A_du_depot():
         name="A", room="th-fYsa4eQJ3E7fa15D", deployment="dp-NX25VF4B3Wa73lsx",
         model="openai/gpt-4.1-mini", reasoning_effort="none",
     )
+
+
+def test_config_A_bis_du_depot():
+    # Déploiement créé le 06/10, avec exactement les mêmes réglages que A :
+    # seuls la room et le déploiement diffèrent.
+    path = Path(__file__).parent.parent / "configs.json"
+    a, a_bis = load_config(path, "A"), load_config(path, "A_bis")
+    assert a_bis == Config(
+        name="A_bis", room="th-O8EnqhNQvMpNlXv6", deployment="dp-McsjU8tUDbC4vJia",
+        model="openai/gpt-4.1-mini", reasoning_effort="none",
+    )
+    assert (a_bis.model, a_bis.reasoning_effort) == (a.model, a.reasoning_effort)
+    assert a_bis.deployment != a.deployment and a_bis.room != a.room

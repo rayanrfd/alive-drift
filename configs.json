@@ -10,5 +10,11 @@
     "deployment": "dp-NX25VF4B3Wa73lsx",
     "model": "openai/gpt-4.1-mini",
     "reasoning_effort": "none"
+  },
+  "A_bis": {
+    "room": "th-O8EnqhNQvMpNlXv6",
+    "deployment": "dp-McsjU8tUDbC4vJia",
+    "model": "openai/gpt-4.1-mini",
+    "reasoning_effort": "none"
   }
 }
