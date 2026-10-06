@@ -98,3 +98,13 @@ def test_configs_json_du_depot():
     config = load_config(path, "sonde")
     assert config.deployment == "dp-E8dfWyMHc4Q7oXnN"
     assert config.reasoning_effort == "none"
+
+
+def test_config_A_du_depot():
+    # Déploiement créé le 06/10 : GPT-4.1 mini, prompt "You are a helpful assistant.",
+    # sans outils, sans contexte, sans fallback, raisonnement coupé.
+    path = Path(__file__).parent.parent / "configs.json"
+    assert load_config(path, "A") == Config(
+        name="A", room="th-fYsa4eQJ3E7fa15D", deployment="dp-NX25VF4B3Wa73lsx",
+        model="openai/gpt-4.1-mini", reasoning_effort="none",
+    )

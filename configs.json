@@ -4,5 +4,11 @@
     "deployment": "dp-E8dfWyMHc4Q7oXnN",
     "model": "mistralai/mistral-small-24b-instruct-2501",
     "reasoning_effort": "none"
+  },
+  "A": {
+    "room": "th-fYsa4eQJ3E7fa15D",
+    "deployment": "dp-NX25VF4B3Wa73lsx",
+    "model": "openai/gpt-4.1-mini",
+    "reasoning_effort": "none"
   }
 }
