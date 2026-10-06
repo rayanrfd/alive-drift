@@ -17,7 +17,9 @@ import httpx
 import pytest
 
 from alive_drift.client import make_client
-from alive_drift.generate import CampaignStopped, errors_path_for, generate, main
+from alive_drift.files import errors_path_for
+from alive_drift.generate import generate, main
+from alive_drift.recorder import CampaignStopped
 from test_generate import (
     TOKEN, cli_args, fake_alive, make_config, make_questions, read_jsonl, run_generate,
     unique_run,

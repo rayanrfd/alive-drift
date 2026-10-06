@@ -23,9 +23,9 @@ import pytest
 
 from alive_drift.client import make_client
 from alive_drift.config import Config
-from alive_drift.generate import (
-    CampaignStopped, errors_path_for, generate, load_questions, main,
-)
+from alive_drift.files import errors_path_for, load_questions
+from alive_drift.generate import generate, main
+from alive_drift.recorder import CampaignStopped
 from test_check import MODEL, REAL_RUN
 
 TOKEN = "jeton-de-test"

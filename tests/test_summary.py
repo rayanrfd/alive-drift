@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from alive_drift.generate import errors_path_for
+from alive_drift.files import errors_path_for
 from alive_drift.summary import format_summary, main, summarize
 from test_generate import make_questions, run_generate
 

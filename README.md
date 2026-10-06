@@ -18,6 +18,10 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
 - `configs.json` + `src/alive_drift/config.py` : les configs, décrites une fois
   (room, déploiement, modèle, effort de raisonnement) et choisies par leur nom.
 - `src/alive_drift/generate.py` : un run par question pour UNE config (A, A_bis, B).
+  Il assemble trois pièces : `files.py` (lire les questions, écrire les lignes,
+  relire ce qui est fait), `pool.py` (envoyer plusieurs questions à la fois et
+  s'arrêter proprement) et `recorder.py` (garder la réponse, noter l'échec, ou
+  arrêter la campagne).
   Chaque réponse est écrite tout de suite dans un JSONL ; les échecs vont dans
   `<sortie>.errors.jsonl`. Arrêt après 5 échecs d'affilée ou sur une erreur de
   notre côté (401, 404...).

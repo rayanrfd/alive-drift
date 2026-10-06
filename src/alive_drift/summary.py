@@ -14,7 +14,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from alive_drift.generate import errors_path_for, load_questions
+from alive_drift.files import errors_path_for, load_questions
 
 
 # --- Lecture -------------------------------------------------------------------
