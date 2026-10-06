@@ -6,7 +6,7 @@ import json
 import pytest
 
 from alive_drift.files import errors_path_for
-from alive_drift.summary import format_summary, main, summarize
+from alive_drift.summary import format_summary, main, summarize, value_covering
 from test_generate import make_questions, run_generate
 
 
@@ -64,6 +64,27 @@ def test_doublons_visibles(tmp_path):
     assert "ATTENTION : des questions ou des execution_id sont en double" in format_summary(s)
 
 
+def test_lignes_invalides_ni_comptees_ni_passees_sous_silence(tmp_path):
+    # Une ligne sans texte de réponse ne doit pas faire croire que la question est faite.
+    no_response = row(1); del no_response["response"]
+    no_execution = row(2, execution_id=None)
+    empty_response = row(3, response="   ")
+    out = write_jsonl(tmp_path / "A.jsonl", [row(0), no_response, no_execution, empty_response])
+    s = summarize(out, make_questions(4))
+    assert s["responses"] == 1
+    assert s["invalid_lines"] == 3
+    assert s["missing"] == ["1", "2", "3"]
+    assert (s["distinct_questions"], s["distinct_executions"]) == (1, 1)
+    assert "ATTENTION : 3 lignes ignorées" in format_summary(s)
+
+
+def test_pas_d_alerte_quand_toutes_les_lignes_sont_valides(tmp_path):
+    out = write_jsonl(tmp_path / "A.jsonl", [row(0), row(1)])
+    s = summarize(out)
+    assert s["invalid_lines"] == 0
+    assert "lignes ignorées" not in format_summary(s)
+
+
 # --- D'où viennent les réponses -------------------------------------------------
 
 def test_provenance(tmp_path):
@@ -92,6 +113,19 @@ def test_longueur_des_reponses(tmp_path):
     assert "troncature" not in format_summary(s)
 
 
+def test_mediane_de_deux_valeurs(tmp_path):
+    out = write_jsonl(tmp_path / "A.jsonl", [row(0, completion_tokens=1), row(1, completion_tokens=100)])
+    assert summarize(out)["completion_tokens"]["median"] == 50.5
+
+
+@pytest.mark.parametrize("n, expected", [(20, 19), (12, 12), (100, 95), (1, 1)])
+def test_95_pour_cent_des_valeurs_sont_bien_en_dessous(n, expected):
+    values = list(range(1, n + 1))  # 1, 2, ..., n
+    v = value_covering(values, 0.95)
+    assert v == expected
+    assert sum(1 for x in values if x <= v) >= 0.95 * n  # la promesse de l'affichage
+
+
 def test_plusieurs_reponses_a_la_longueur_max_signalees(tmp_path):
     # Trois réponses à exactement 1500 tokens : sans doute un plafond.
     out = write_jsonl(tmp_path / "A.jsonl",
@@ -112,6 +146,12 @@ def test_cout_et_duree(tmp_path):
     assert s["credits_mean"] == 0.2
     assert s["duration_ms_mean"] == 4000
     assert s["duration_ms_max"] == 5000
+    # Le chiffre ne porte que sur 2 réponses sur 3 : c'est dit.
+    assert s["known"] == {"completion_tokens": 3, "credits_used": 2, "duration_ms": 2}
+    text = format_summary(s)
+    assert "0.4 pour les réponses gardées, 0.2 par réponse (sur 2 des 3 réponses)" in text
+    assert "5000 ms au plus (sur 2 des 3 réponses)" in text
+    assert "max 300\n" in text  # les tokens, eux, sont connus partout : pas de mention
 
 
 def test_periode(tmp_path):
@@ -123,7 +163,9 @@ def test_periode(tmp_path):
     s = summarize(out)
     assert s["first_written_at"] == "2026-10-06T09:21:00+00:00"
     assert s["last_written_at"] == "2026-10-06T09:33:31+00:00"  # les erreurs comptent aussi
-    assert "période             : 2026-10-06T09:21:00+00:00 -> 2026-10-06T09:33:31+00:00" in format_summary(s)
+    assert s["without_time"] == 1
+    assert ("période             : 2026-10-06T09:21:00+00:00 -> 2026-10-06T09:33:31+00:00 "
+            "(1 lignes sans heure, non comptées)") in format_summary(s)
 
 
 def test_periode_inconnue_pour_les_anciennes_lignes(tmp_path):
@@ -212,7 +254,7 @@ def test_main(tmp_path, capsys):
     printed = capsys.readouterr().out
     assert "réponses            : 2 (2 questions, 2 execution_id)" in printed
     assert "questions manquantes : 1 (2)" in printed
-    assert "crédits             : 0.2 au total, 0.1 par réponse" in printed
+    assert "crédits             : 0.2 pour les réponses gardées, 0.1 par réponse\n" in printed
 
 
 def test_main_fichier_absent_code_2(tmp_path, capsys):

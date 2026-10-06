@@ -9,7 +9,9 @@ a coûté, et pourquoi les échecs ont eu lieu.
 
 import argparse
 import json
+import math
 import re
+import statistics
 import sys
 from collections import Counter
 from pathlib import Path
@@ -40,9 +42,22 @@ def numbers(rows: list[dict], key: str) -> list:
     return sorted(r[key] for r in rows if type(r.get(key)) in (int, float))
 
 
-def percentile(sorted_values: list, fraction: float):
-    """La valeur située à `fraction` (0.5 = médiane, 0.95 = 95e centile) d'une liste triée."""
-    return sorted_values[round(fraction * (len(sorted_values) - 1))]
+def value_covering(sorted_values: list, fraction: float):
+    """La plus petite valeur V de la liste telle qu'au moins `fraction` des valeurs soient <= V.
+
+    Avec fraction=0.95 sur [1, 2, ..., 20] : 19, car 19 valeurs sur 20 (95 %) sont <= 19.
+    """
+    return sorted_values[math.ceil(fraction * len(sorted_values)) - 1]
+
+
+def is_text(value) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def is_valid(row: dict) -> bool:
+    """Une ligne compte comme une réponse si elle a une question, un run et un texte."""
+    return is_text(row.get("question_id")) and is_text(row.get("execution_id")) \
+        and is_text(row.get("response"))
 
 
 def counts(rows: list[dict], key: str) -> dict:
@@ -69,7 +84,8 @@ def summarize(out_path, questions: list[dict] | None = None) -> dict:
     `questions` : la liste complète des questions, pour savoir lesquelles manquent.
     """
     out_path = Path(out_path)
-    rows = read_jsonl(out_path)
+    all_rows = read_jsonl(out_path)
+    rows = [r for r in all_rows if is_valid(r)]  # seules les lignes valides sont comptées
     errors_path = errors_path_for(out_path)
     errors = read_jsonl(errors_path) if errors_path.exists() else []
 
@@ -78,11 +94,14 @@ def summarize(out_path, questions: list[dict] | None = None) -> dict:
     credits = numbers(rows, "credits_used")
     durations = numbers(rows, "duration_ms")
     reasoning = numbers(rows, "reasoning_tokens")
+    # Toutes les heures sont écrites par now_utc(), au même format et en UTC :
+    # l'ordre alphabétique est donc l'ordre du temps.
     times = sorted(r["written_at"] for r in rows + errors if r.get("written_at"))
 
     return {
         # Ce qui est fait
         "responses": len(rows),
+        "invalid_lines": len(all_rows) - len(rows),  # sans question, sans run ou sans texte
         "distinct_questions": len(done),            # < responses : une question en double
         "distinct_executions": len({r.get("execution_id") for r in rows}),
         "missing": None if questions is None else [q["id"] for q in questions if q["id"] not in done],
@@ -96,17 +115,23 @@ def summarize(out_path, questions: list[dict] | None = None) -> dict:
         # Longueur des réponses. at_max = nombre de réponses à la longueur maximale :
         # s'il y en a plusieurs, elles sont peut-être coupées à un plafond.
         "completion_tokens": None if not tokens else {
-            "min": tokens[0], "median": percentile(tokens, 0.5),
-            "p95": percentile(tokens, 0.95), "max": tokens[-1],
+            "min": tokens[0], "median": statistics.median(tokens),
+            "p95": value_covering(tokens, 0.95), "max": tokens[-1],
             "at_max": tokens.count(tokens[-1]),
         },
-        # Coût et durée
+        # Sur combien de réponses chaque chiffre est calculé : une valeur absente
+        # (null) est ignorée, donc le chiffre peut ne porter que sur une partie.
+        "known": {"completion_tokens": len(tokens), "credits_used": len(credits),
+                  "duration_ms": len(durations)},
+        # Coût et durée. Le coût ne compte que les réponses gardées : un run
+        # rejeté est facturé par Alive mais n'a pas de ligne ici.
         "credits_total": round(sum(credits), 4),
         "credits_mean": round(sum(credits) / len(credits), 4) if credits else None,
         "duration_ms_mean": round(sum(durations) / len(durations)) if durations else None,
         "duration_ms_max": durations[-1] if durations else None,
         "first_written_at": times[0] if times else None,
         "last_written_at": times[-1] if times else None,
+        "without_time": sum(1 for r in rows + errors if not r.get("written_at")),
         # Échecs. never_succeeded = en erreur ET toujours sans réponse.
         "error_lines": len(errors),
         "never_succeeded": sorted({e.get("question_id") for e in errors} - done, key=str),
@@ -120,8 +145,16 @@ def format_summary(s: dict) -> str:
         f"réponses            : {s['responses']} "
         f"({s['distinct_questions']} questions, {s['distinct_executions']} execution_id)",
     ]
+    if s["invalid_lines"]:
+        lines.append(f"  ATTENTION : {s['invalid_lines']} lignes ignorées "
+                     "(sans question, sans execution_id ou sans réponse)")
     if s["distinct_questions"] != s["responses"] or s["distinct_executions"] != s["responses"]:
         lines.append("  ATTENTION : des questions ou des execution_id sont en double")
+
+    def coverage(key: str) -> str:
+        """" (sur 990 des 1000 réponses)" si le chiffre ne porte pas sur toutes les réponses."""
+        known = s["known"][key]
+        return "" if known == s["responses"] else f" (sur {known} des {s['responses']} réponses)"
     if s["missing"] is not None:
         preview = ", ".join(s["missing"][:10]) + (" ..." if len(s["missing"]) > 10 else "")
         lines.append(f"questions manquantes : {len(s['missing'])}" + (f" ({preview})" if preview else ""))
@@ -133,15 +166,18 @@ def format_summary(s: dict) -> str:
     lines.append(f"raisonnement max    : {s['reasoning_tokens_max']} tokens")
     t = s["completion_tokens"]
     if t:
-        lines.append(f"tokens de sortie    : min {t['min']}, médiane {t['median']}, "
-                     f"95 % sous {t['p95']}, max {t['max']}")
+        lines.append(f"tokens de sortie    : min {t['min']}, médiane {t['median']:g}, "
+                     f"95 % à {t['p95']} ou moins, max {t['max']}" + coverage("completion_tokens"))
         if t["at_max"] > 1:
             lines.append(f"  ATTENTION : {t['at_max']} réponses font exactement {t['max']} tokens "
                          "(troncature possible)")
-    lines.append(f"crédits             : {s['credits_total']} au total, {s['credits_mean']} par réponse")
-    lines.append(f"durée d'un run      : {s['duration_ms_mean']} ms en moyenne, {s['duration_ms_max']} ms au plus")
+    lines.append(f"crédits             : {s['credits_total']} pour les réponses gardées, "
+                 f"{s['credits_mean']} par réponse" + coverage("credits_used"))
+    lines.append(f"durée d'un run      : {s['duration_ms_mean']} ms en moyenne, "
+                 f"{s['duration_ms_max']} ms au plus" + coverage("duration_ms"))
     if s["first_written_at"]:
-        lines.append(f"période             : {s['first_written_at']} -> {s['last_written_at']}")
+        missing = f" ({s['without_time']} lignes sans heure, non comptées)" if s["without_time"] else ""
+        lines.append(f"période             : {s['first_written_at']} -> {s['last_written_at']}" + missing)
     else:
         lines.append("période             : inconnue (lignes écrites avant l'ajout de l'heure)")
     lines.append(f"lignes d'erreur     : {s['error_lines']} "
