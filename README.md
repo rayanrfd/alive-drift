@@ -28,6 +28,9 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   `--workers N` envoie N questions en même temps (défaut 1) ; un seul fil écrit
   les fichiers. Les lignes sont alors dans l'ordre d'arrivée des réponses.
   Commande : `uv run python -m alive_drift.generate --config sonde --out outputs/sonde.jsonl --limit 3`.
+- `src/alive_drift/summary.py` : résume un fichier de réponses et son journal
+  d'erreurs (questions manquantes, providers, longueurs, coût, échecs par message).
+  Ne lance aucun run : `uv run python -m alive_drift.summary outputs/A.jsonl`.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
 
