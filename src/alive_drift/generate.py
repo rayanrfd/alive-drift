@@ -125,6 +125,23 @@ def append_line(path: Path, record: dict) -> None:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+def alive_detail(err: Exception) -> str | None:
+    """Le message qu'Alive a mis dans sa réponse d'erreur (502, 429...), s'il y en a un.
+
+    str(err) ne contient que le code et l'URL : sans ce message, on ne sait pas
+    POURQUOI Alive a refusé (limite de débit, panne du modèle...).
+    """
+    if not isinstance(err, httpx.HTTPStatusError):
+        return None
+    try:
+        body = err.response.json()
+    except ValueError:
+        return err.response.text[:500] or None
+    if isinstance(body, dict) and "detail" in body:
+        return str(body["detail"])[:500]
+    return str(body)[:500]
+
+
 def errors_path_for(out_path: Path) -> Path:
     """outputs/A.jsonl -> outputs/A.errors.jsonl"""
     return out_path.with_name(out_path.stem + ".errors.jsonl")
@@ -313,11 +330,12 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
                     "deployment_id": config.deployment,
                     "error_type": type(err).__name__,
                     "error": str(err),
+                    "detail": alive_detail(err),
                 })
                 n_failed += 1
                 consecutive += 1
                 print(f"[{i}/{len(todo)}] question {question['id']} : ÉCHEC "
-                      f"({type(err).__name__})", file=sys.stderr)
+                      f"({type(err).__name__}) {alive_detail(err) or ''}", file=sys.stderr)
                 if consecutive >= MAX_CONSECUTIVE_FAILURES and stop is None:
                     stop = CampaignStopped(
                         f"{consecutive} échecs d'affilée, arrêt à la question {question['id']}")

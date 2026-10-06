@@ -209,6 +209,7 @@ def test_run_rejete_note_et_on_continue(tmp_path):
     assert errors[0]["deployment_id"] == DEPLOYMENT
     assert errors[0]["error_type"] == "RunRejected"
     assert "servi par 'google/gemini-3.1-flash-lite'" in errors[0]["error"]
+    assert errors[0]["detail"] is None  # un rejet n'est pas une erreur HTTP : pas de message d'Alive
 
 
 def test_trois_502_notes_et_on_continue(tmp_path):
@@ -222,6 +223,7 @@ def test_trois_502_notes_et_on_continue(tmp_path):
     assert errors[0]["question_id"] == "1"
     assert errors[0]["error_type"] == "HTTPStatusError"
     assert TOKEN not in errors[0]["error"]
+    assert errors[0]["detail"] == "erreur 502"  # le message renvoyé par (le faux) Alive
 
 
 def test_502_puis_succes_reponse_gardee(tmp_path):
@@ -313,6 +315,22 @@ def test_limit_invalide_refuse(tmp_path, limit):
     assert isinstance(result, ValueError)
     assert inputs == []  # -1 aurait lancé toutes les questions sauf la dernière
     assert not out.exists()
+
+
+@pytest.mark.parametrize("body, expected", [
+    (b'{"detail": "rate limit exceeded"}', "rate limit exceeded"),
+    (b'{"autre": 1}', "{'autre': 1}"),
+    (b"<html>Bad Gateway</html>", "<html>Bad Gateway</html>"),
+    (b"", None),
+])
+def test_message_d_alive_note_avec_l_echec(tmp_path, body, expected):
+    out = tmp_path / "A.jsonl"
+    transport = httpx.MockTransport(lambda request: httpx.Response(502, content=body))
+    with make_client(TOKEN, transport) as client:
+        result = generate(client, make_questions(1), make_config(), out_path=out,
+                          sleep=lambda s: None)
+    assert result == (0, 1)
+    assert read_jsonl(errors_path_for(out))[0]["detail"] == expected
 
 
 # --- Arrêts ----------------------------------------------------------------------
