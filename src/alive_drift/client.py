@@ -32,8 +32,11 @@ TIMEOUT_S = 300.0
 # ou de notre jeton : réessayer ne changerait rien.
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
-# Attente avant le 2e puis le 3e essai. 2 délais = 3 essais au total.
-RETRY_DELAYS_S = (2.0, 5.0)
+# Attente avant chaque nouvel essai. 4 délais = 5 essais au total, étalés sur
+# près de 2 minutes : assez pour laisser le serveur d'Alive redémarrer. Le
+# 06/10, il saturait ("Too many open files") environ tous les 100 runs et
+# revenait en quelques dizaines de secondes ; 3 essais en 7 s n'y suffisaient pas.
+RETRY_DELAYS_S = (5.0, 15.0, 30.0, 60.0)
 
 
 def make_client(token: str, transport: httpx.BaseTransport | None = None) -> httpx.Client:
@@ -82,13 +85,15 @@ def is_retryable(err: Exception) -> bool:
 
 def run_with_retries(client: httpx.Client, room_id: str, deployment_id: str,
                      question: str, expected_model: str, expected_effort: str = "none",
-                     sleep=time.sleep) -> dict:
-    """run_once, avec jusqu'à 3 essais si l'échec est passager.
+                     sleep=time.sleep, give_up=lambda: False) -> dict:
+    """run_once, avec jusqu'à 5 essais si l'échec est passager.
 
     RunRejected n'est JAMAIS réessayé : le run a abouti (donc il est facturé)
     mais a été servi autrement que demandé. On veut le voir, pas le masquer.
 
-    `sleep` sert seulement aux tests, pour ne pas attendre pour de vrai.
+    `sleep` : la fonction d'attente (remplacée dans les tests pour ne pas attendre).
+    `give_up` : fonction sans argument ; si elle renvoie vrai, on ne réessaie plus
+    et l'erreur en cours est levée. Sert à abandonner quand la campagne s'arrête.
     """
     attempts = len(RETRY_DELAYS_S) + 1
     for attempt in range(1, attempts + 1):
@@ -96,12 +101,14 @@ def run_with_retries(client: httpx.Client, room_id: str, deployment_id: str,
             return run_once(client, room_id, deployment_id, question,
                             expected_model, expected_effort)
         except (httpx.HTTPStatusError, httpx.TransportError) as err:
-            if attempt == attempts or not is_retryable(err):
-                raise  # dernier essai, ou erreur qui ne passera pas en réessayant
+            if attempt == attempts or not is_retryable(err) or give_up():
+                raise  # dernier essai, erreur sans espoir, ou campagne en cours d'arrêt
             delay = RETRY_DELAYS_S[attempt - 1]
             print(f"essai {attempt}/{attempts} échoué ({type(err).__name__}), "
                   f"nouvel essai dans {delay:g} s", file=sys.stderr)
             sleep(delay)
+            if give_up():
+                raise  # l'arrêt a été décidé pendant l'attente
     raise AssertionError("inatteignable")  # la boucle rend ou lève toujours
 
 

@@ -14,6 +14,8 @@ run (unique_run), sauf pour l'étape "same".
 import copy
 import itertools
 import json
+import re
+import time
 from pathlib import Path
 
 import httpx
@@ -79,14 +81,18 @@ def fake_alive(plan=None, on_request=None):
 
 
 def run_generate(questions, out_path, plan=None, on_request=None, *,
-                 config=None, limit=None, workers=1):
-    """Lance generate (config A par défaut). Renvoie (résultat ou exception, questions reçues)."""
+                 config=None, limit=None, workers=1, sleep=lambda s: None):
+    """Lance generate (config A par défaut). Renvoie (résultat ou exception, questions reçues).
+
+    Par défaut les attentes entre essais sont supprimées. `sleep=None` garde la
+    vraie attente de generate (celle qui s'interrompt à l'arrêt).
+    """
     transport, inputs = fake_alive(plan, on_request)
     with make_client(TOKEN, transport) as client:
         try:
             result = generate(client, questions, config or make_config(),
                               out_path=out_path, limit=limit, workers=workers,
-                              sleep=lambda s: None)
+                              sleep=sleep)
         except Exception as err:
             result = err
     return result, inputs
@@ -160,6 +166,8 @@ def test_trois_questions(tmp_path):
     assert [r["question_id"] for r in records] == ["0", "1", "2"]
     record = records[1]
     assert record.pop("execution_id").startswith("ex-test-")  # celui du faux serveur
+    # L'heure d'écriture, en UTC : 2026-10-06T09:24:31+00:00
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00", record.pop("written_at"))
     assert record == {
         "question_id": "1",
         "config": "A",
@@ -212,18 +220,19 @@ def test_run_rejete_note_et_on_continue(tmp_path):
     assert errors[0]["detail"] is None  # un rejet n'est pas une erreur HTTP : pas de message d'Alive
 
 
-def test_trois_502_notes_et_on_continue(tmp_path):
+def test_cinq_502_notes_et_on_continue(tmp_path):
     out = tmp_path / "A.jsonl"
-    result, inputs = run_generate(make_questions(3), out, plan={"question 1": [502, 502, 502]})
+    result, inputs = run_generate(make_questions(3), out, plan={"question 1": [502] * 5})
 
     assert result == (2, 1)
-    assert inputs.count("question 1") == 3  # les 3 essais ont eu lieu
+    assert inputs.count("question 1") == 5  # les 5 essais ont eu lieu
     assert [r["question_id"] for r in read_jsonl(out)] == ["0", "2"]
     errors = read_jsonl(errors_path_for(out))
     assert errors[0]["question_id"] == "1"
     assert errors[0]["error_type"] == "HTTPStatusError"
     assert TOKEN not in errors[0]["error"]
     assert errors[0]["detail"] == "erreur 502"  # le message renvoyé par (le faux) Alive
+    assert errors[0]["written_at"].endswith("+00:00")
 
 
 def test_502_puis_succes_reponse_gardee(tmp_path):
@@ -334,6 +343,24 @@ def test_message_d_alive_note_avec_l_echec(tmp_path, body, expected):
 
 
 # --- Arrêts ----------------------------------------------------------------------
+
+def test_a_l_arret_les_reessais_en_attente_sont_abandonnes(tmp_path):
+    # Question 1 : un 502, donc elle attend 5 s avant son 2e essai.
+    # Question 0 : un 401 un peu plus tard, qui arrête la campagne.
+    # La question 1 doit se réveiller tout de suite et NE PAS renvoyer de run.
+    out = tmp_path / "A.jsonl"
+    plan = {"question 0": [401], "question 1": [502, 200]}
+    slow_401 = lambda text: time.sleep(0.2) if text == "question 0" else None
+    start = time.monotonic()
+    result, inputs = run_generate(make_questions(2), out, plan=plan, on_request=slow_401,
+                                  workers=2, sleep=None)  # sleep=None : la vraie attente
+
+    assert isinstance(result, httpx.HTTPStatusError)
+    assert result.response.status_code == 401
+    assert time.monotonic() - start < 2.0          # pas les 5 s d'attente
+    assert inputs.count("question 1") == 1         # pas de 2e essai après l'arrêt
+    assert read_jsonl(out) == []
+
 
 def test_401_arrete_tout(tmp_path):
     out = tmp_path / "A.jsonl"

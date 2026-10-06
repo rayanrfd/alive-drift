@@ -13,7 +13,7 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   servi n'est pas exactement celui demandé (fallback, substitution, plusieurs
   appels, raisonnement non coupé).
 - `src/alive_drift/client.py` : lance UN run et renvoie le JSON d'Alive vérifié
-  par `check_run`. Jusqu'à 3 essais si Alive répond 429 ou 5xx, ou si le réseau
+  par `check_run`. Jusqu'à 5 essais (attentes de 5, 15, 30 puis 60 s) si Alive répond 429 ou 5xx, ou si le réseau
   coupe ; jamais pour une erreur de notre requête ni pour un run rejeté.
 - `configs.json` + `src/alive_drift/config.py` : les configs, décrites une fois
   (room, déploiement, modèle, effort de raisonnement) et choisies par leur nom.
@@ -58,7 +58,7 @@ uv run pytest -q
   créer un second run facturé.
 - Avec `--workers N` (32 au plus), un arrêt (401, 5 échecs d'affilée, Ctrl-C)
   n'envoie plus rien et laisse finir les runs en cours (N au plus), tous
-  enregistrés. Un run en attente entre deux essais termine ses essais.
+  enregistrés. Un run en attente entre deux essais abandonne ses réessais.
 - Un second Ctrl-C abandonne l'attente : les runs en cours sont payés mais pas
   écrits ; la reprise les refait.
 - Un run rejeté est facturé, et retenté à chaque relance ; le compteur des 5

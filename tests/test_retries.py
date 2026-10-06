@@ -38,14 +38,14 @@ def scripted_alive(scenario, ok_body=None):
     return httpx.MockTransport(handler), calls
 
 
-def play(scenario, ok_body=None):
+def play(scenario, ok_body=None, give_up=lambda: False):
     """Lance run_with_retries sur le scénario. Renvoie (résultat ou exception, appels, attentes)."""
     transport, calls = scripted_alive(scenario, ok_body)
     sleeps = []
     with make_client(TOKEN, transport) as client:
         try:
             result = run_with_retries(client, ROOM, DEPLOYMENT, QUESTION, MODEL,
-                                      sleep=sleeps.append)
+                                      sleep=sleeps.append, give_up=give_up)
         except Exception as err:  # le test regarde ensuite quelle exception
             result = err
     return result, len(calls), sleeps
@@ -57,14 +57,22 @@ def test_502_puis_succes():
     result, n_calls, sleeps = play([502, 200])
     assert result == REAL_RUN
     assert n_calls == 2
-    assert sleeps == [2.0]
+    assert sleeps == [5.0]
 
 
 def test_deux_echecs_puis_succes():
     result, n_calls, sleeps = play([503, 502, 200])
     assert result == REAL_RUN
     assert n_calls == 3
-    assert sleeps == [2.0, 5.0]
+    assert sleeps == [5.0, 15.0]
+
+
+def test_quatre_echecs_puis_succes_au_dernier_essai():
+    # Le cas du 06/10 : le serveur d'Alive met du temps à revenir.
+    result, n_calls, sleeps = play([502, 502, 502, 502, 200])
+    assert result == REAL_RUN
+    assert n_calls == 5
+    assert sleeps == [5.0, 15.0, 30.0, 60.0]
 
 
 def test_429_puis_succes():
@@ -79,20 +87,42 @@ def test_reseau_coupe_puis_succes():
     assert n_calls == 2
 
 
-# --- Abandon après 3 essais ------------------------------------------------------
+# --- Abandon après 5 essais ------------------------------------------------------
 
-def test_trois_502_abandon():
-    result, n_calls, sleeps = play([502, 502, 502])
+def test_cinq_502_abandon():
+    result, n_calls, sleeps = play([502] * 6)
     assert isinstance(result, httpx.HTTPStatusError)
     assert result.response.status_code == 502
-    assert n_calls == 3
-    assert sleeps == [2.0, 5.0]  # pas d'attente après le dernier essai
+    assert n_calls == 5  # pas un 6e essai
+    assert sleeps == [5.0, 15.0, 30.0, 60.0]  # pas d'attente après le dernier essai
 
 
-def test_trois_timeouts_abandon():
-    result, n_calls, _ = play([httpx.ReadTimeout("trop long")] * 3)
+def test_cinq_timeouts_abandon():
+    result, n_calls, _ = play([httpx.ReadTimeout("trop long")] * 6)
     assert isinstance(result, httpx.ReadTimeout)
-    assert n_calls == 3
+    assert n_calls == 5
+
+
+# --- give_up : on ne réessaie plus quand la campagne s'arrête -------------------
+
+def test_give_up_deja_vrai_pas_de_reessai():
+    result, n_calls, sleeps = play([502, 200], give_up=lambda: True)
+    assert isinstance(result, httpx.HTTPStatusError)
+    assert n_calls == 1
+    assert sleeps == []  # on n'attend même pas
+
+
+def test_give_up_devient_vrai_pendant_l_attente():
+    answers = iter([False, True])  # faux avant l'attente, vrai après
+    result, n_calls, sleeps = play([502, 200], give_up=lambda: next(answers))
+    assert isinstance(result, httpx.HTTPStatusError)
+    assert n_calls == 1  # le 2e essai n'est pas envoyé
+    assert sleeps == [5.0]
+
+
+def test_give_up_n_empeche_pas_un_succes():
+    result, n_calls, _ = play([200], give_up=lambda: True)
+    assert result == REAL_RUN
 
 
 # --- Erreurs qui ne passeront pas : un seul appel ------------------------------
@@ -124,5 +154,5 @@ def test_main_reessaie(monkeypatch, capsys):
     sleeps = []
     assert main([ROOM, DEPLOYMENT, MODEL, QUESTION], transport, sleep=sleeps.append) == 0
     assert len(calls) == 2
-    assert sleeps == [2.0]
+    assert sleeps == [5.0]
     assert capsys.readouterr().out.strip().endswith("ACCEPTÉ")

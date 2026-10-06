@@ -102,7 +102,7 @@ def test_aucune_ligne_abimee_ni_en_double(tmp_path):
 
 def test_echecs_notes_en_parallele(tmp_path):
     out = tmp_path / "A.jsonl"
-    plan = {"question 3": ["gemini"], "question 7": [502, 502, 502], "question 9": [502, 200]}
+    plan = {"question 3": ["gemini"], "question 7": [502] * 5, "question 9": [502, 200]}
     result, _ = run_generate(make_questions(12), out, plan=plan, on_request=slow(), workers=4)
 
     assert result == (10, 2)

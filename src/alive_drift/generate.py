@@ -29,7 +29,8 @@ import argparse
 import json
 import os
 import sys
-import time
+import threading
+from datetime import datetime, timezone
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
@@ -116,7 +117,13 @@ def make_record(question: dict, run: dict, config: Config) -> dict:
         "reasoning_tokens": tokens.get("reasoning"),
         "credits_used": run.get("credits_used"),
         "duration_ms": run.get("duration_ms"),
+        "written_at": now_utc(),
     }
+
+
+def now_utc() -> str:
+    """L'heure courante, en UTC, à la seconde : "2026-10-06T09:24:31+00:00"."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def append_line(path: Path, record: dict) -> None:
@@ -217,12 +224,13 @@ def load_done(out_path: Path, questions: list[dict], config: Config) -> tuple[se
 
 def generate(client: httpx.Client, questions: list[dict], config: Config, *,
              out_path, limit: int | None = None, workers: int = 1,
-             sleep=time.sleep) -> tuple[int, int]:
+             sleep=None) -> tuple[int, int]:
     """Un run par question à faire. Renvoie (réponses gardées, échecs) DE CE LANCEMENT.
 
     `config` : où envoyer les runs et ce qu'on attend d'eux (voir config.py).
     `limit` : ne considérer que les N premières questions (au moins 1).
     `workers` : nombre de questions envoyées à Alive en même temps (1 à 32).
+    `sleep` : fonction d'attente entre deux essais ; à ne passer que dans les tests.
     Les questions qui ont déjà une ligne dans out_path sont sautées (reprise).
 
     - Réponse gardée  -> une ligne dans out_path, écrite immédiatement.
@@ -231,6 +239,7 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
     - Erreur de notre côté (401, 404...) -> on arrête tout : chaque question
       échouerait de la même façon.
     - 5 échecs d'affilée -> CampaignStopped.
+    - Dès qu'un arrêt est décidé, les réessais en attente sont abandonnés.
     - Une réponse dont l'execution_id a déjà servi -> comptée comme un échec.
     - Ctrl-C -> KeyboardInterrupt, levée une fois les runs en cours rangés.
 
@@ -262,11 +271,18 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
     # --- Une tentative = une question envoyée à Alive ---------------------------
     # Tourne dans un fil secondaire : elle n'écrit RIEN, elle renvoie seulement
     # (question, run, erreur). Un seul fil écrit les fichiers : le principal.
+    # `stopping` est levé dès qu'un arrêt est décidé. Les fils qui attendent
+    # entre deux essais se réveillent alors tout de suite et abandonnent.
+    stopping = threading.Event()
+    if sleep is None:
+        sleep = stopping.wait  # attend N secondes, ou moins si l'arrêt est décidé
+
     def attempt(question: dict):
         try:
             run = run_with_retries(client, config.room, config.deployment,
                                    question["text"], config.model,
-                                   config.reasoning_effort, sleep=sleep)
+                                   config.reasoning_effort, sleep=sleep,
+                                   give_up=stopping.is_set)
         except (RunRejected, httpx.HTTPStatusError, httpx.TransportError) as err:
             return question, None, err
         return question, run, None
@@ -280,6 +296,8 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
     forced = False           # Ctrl-C reçu deux fois : on n'attend plus
     try:
         while True:
+            if stop is not None:
+                stopping.set()
             # --- Envoyer : seulement s'il y a de la place et pas d'arrêt décidé ---
             while stop is None and len(in_flight) < workers:
                 question = next(remaining, None)
@@ -331,6 +349,7 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
                     "error_type": type(err).__name__,
                     "error": str(err),
                     "detail": alive_detail(err),
+                    "written_at": now_utc(),
                 })
                 n_failed += 1
                 consecutive += 1
@@ -342,6 +361,7 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
     finally:
         # Normalement plus rien n'est en cours ici. Sur une erreur imprévue, on
         # attend les runs partis ; après un second Ctrl-C, on n'attend pas.
+        stopping.set()
         pool.shutdown(wait=not forced, cancel_futures=True)
 
     if stop is not None:
@@ -352,7 +372,7 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
 # --- Ligne de commande -----------------------------------------------------------
 
 def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = None,
-         sleep=time.sleep) -> int:
+         sleep=None) -> int:
     parser = argparse.ArgumentParser(description="Génère les réponses d'une config sur Alive.")
     parser.add_argument("--config", required=True, help="nom d'une config de configs.json")
     parser.add_argument("--configs", default="configs.json", help="fichier des configs")
