@@ -1,0 +1,16 @@
+{
+  "juge_gemini": {
+    "room": "th-HfJsDiFesplDCZGj",
+    "deployment": "dp-LhRm3yuILsAE2dM5",
+    "model": "google/gemini-3.8-flash",
+    "reasoning_effort": "none",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_sonnet": {
+    "room": "th-nAeTvm1QtArZ7qgj",
+    "deployment": "dp-CDfYBfyppKrjX8LA",
+    "model": "anthropic/claude-sonnet-5.5",
+    "reasoning_effort": "none",
+    "judge_prompt": "402721efd0f3"
+  }
+}
