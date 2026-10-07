@@ -112,6 +112,10 @@ def parse_verdicts(content: str, grid: list[Criterion]) -> dict[str, Verdict]:
     Tout ou rien : lève JudgeAnswerError si un critère manque, apparaît deux
     fois, porte un numéro inconnu, ou si "criteria_met" n'est pas un vrai
     booléen. Une note partielle fausserait les scores sans bruit.
+
+    Le numéro du critère est lu dans "criterion_id", ou à défaut dans "id" :
+    à l'essai du 07/10, DeepSeek écrivait "id" (comme dans <rubric_item id=...>)
+    6 fois sur 7. Si les deux sont là et diffèrent, on refuse.
     """
     results = extract_json(content).get("results")
     if not isinstance(results, list):
@@ -120,7 +124,9 @@ def parse_verdicts(content: str, grid: list[Criterion]) -> dict[str, Verdict]:
     for item in results:
         if not isinstance(item, dict):
             raise JudgeAnswerError(f"élément de 'results' mal formé : {item!r}")
-        number, met = item.get("criterion_id"), item.get("criteria_met")
+        number, met = item.get("criterion_id", item.get("id")), item.get("criteria_met")
+        if "criterion_id" in item and "id" in item and item["criterion_id"] != item["id"]:
+            raise JudgeAnswerError(f"criterion_id {item['criterion_id']!r} et id {item['id']!r} différents")
         if type(number) is not int or not 1 <= number <= len(grid):
             raise JudgeAnswerError(f"criterion_id inconnu : {number!r}")
         if number in by_number:

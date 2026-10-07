@@ -108,6 +108,15 @@ def test_json_entoure_de_texte(wrapped):
     assert parse_verdicts(wrapped, SMALL) == parse_verdicts(GOOD, SMALL)
 
 
+def test_numero_du_critere_sous_le_nom_id():
+    # Ce que DeepSeek a renvoyé à l'essai du 07/10.
+    content = json.dumps({"results": [
+        {"id": 1, "explanation": "clair", "criteria_met": True},
+        {"id": 2, "explanation": "trop affirmatif", "criteria_met": False},
+        {"criterion_id": 3, "id": 3, "explanation": "parce que", "criteria_met": True}]})
+    assert parse_verdicts(content, SMALL) == parse_verdicts(GOOD, SMALL)
+
+
 def test_explication_absente_acceptee():
     content = answer({"criterion_id": 1, "criteria_met": True}, item(2, False), item(3, True))
     assert parse_verdicts(content, SMALL)["communication_a"] == Verdict(True, "")
@@ -124,6 +133,12 @@ def test_explication_absente_acceptee():
     (answer(item(1, 1), item(2, False), item(3, True)), "criteria_met = 1"),
     (answer(item(1, None), item(2, False), item(3, True)), "criteria_met = None"),
     (answer(item(1, True), "oui", item(3, True)), "mal formé"),
+    (json.dumps({"results": [{"criterion_id": 1, "id": 2, "criteria_met": True},
+                             {"id": 2, "criteria_met": False}, {"id": 3, "criteria_met": True}]}),
+     "criterion_id 1 et id 2 différents"),
+    (json.dumps({"results": [{"id": "1", "criteria_met": True},
+                             {"id": 2, "criteria_met": False}, {"id": 3, "criteria_met": True}]}),
+     "criterion_id inconnu : '1'"),
     (json.dumps({"verdicts": []}), "pas de liste 'results'"),
     (json.dumps({"results": {"1": True}}), "pas de liste 'results'"),
     ("I cannot evaluate this response.", "pas d'objet JSON"),
