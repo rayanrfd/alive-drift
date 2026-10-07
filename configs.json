@@ -40,5 +40,19 @@
     "model": "qwen/qwen3.8-flash",
     "reasoning_effort": "none",
     "judge_prompt": "402721efd0f3"
+  },
+  "juge_gemini": {
+    "room": "th-0rt22OuJvwfpAiBH",
+    "deployment": "dp-IZ0KvGNHBumBxq7s",
+    "model": "google/gemini-3.8-flash",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_sonnet": {
+    "room": "th-nq5hBuBKDCevLJ69",
+    "deployment": "dp-dS7phqeCjn0vesFb",
+    "model": "anthropic/claude-sonnet-5.5",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
   }
 }
