@@ -16,5 +16,11 @@
     "deployment": "dp-McsjU8tUDbC4vJia",
     "model": "openai/gpt-4.1-mini",
     "reasoning_effort": "none"
+  },
+  "B": {
+    "room": "th-Ge8C3GdT2avemjq9",
+    "deployment": "dp-tyJheTQRmbqXCLEy",
+    "model": "openai/gpt-4.1-mini",
+    "reasoning_effort": "none"
   }
 }
