@@ -447,12 +447,12 @@ def test_main_sans_jeton_code_2(tmp_path, monkeypatch):
 
 
 def test_les_juges_d_avant_non_applicable_sont_refuses():
-    # Ces juges ont été créés le 07/10 avec l'ancienne consigne (oui/non, sans N/A).
-    # Leur déploiement existe toujours chez Alive : on vérifie qu'on ne peut plus
-    # les lancer par erreur, puisque leurs réponses n'auraient pas de champ "verdict".
+    # Ces juges ont été créés le 07/10 avec l'ancienne consigne (oui/non, sans N/A),
+    # puis rangés dans archive/. Leur déploiement existe toujours chez Alive : si
+    # quelqu'un les remettait dans configs.json, jury refuserait de les lancer.
     from alive_drift.config import load_config
     from alive_drift.grid import load_grid
     grid = load_grid(REPO / "data" / "criteria.json")
     for name in ("juge_deepseek", "juge_gemini", "juge_qwen", "juge_minimax", "juge_glm", "juge_kimi"):
         with pytest.raises(ValueError, match="créé avec le prompt 283c79ab9f9a"):
-            check_judge(load_config(REPO / "configs.json", name), grid)
+            check_judge(load_config(REPO / "archive" / "juges_avant_na.json", name), grid)

@@ -53,16 +53,15 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   déploiement du juge), `user_message(question, réponse)` (le message de chaque run),
   `parse_verdicts(contenu, grid)` (34 verdicts par nom de critère, tout ou rien).
   Trois verdicts : `met`, `not_met`, `not_applicable` (N/A, décidé d'après la question
-  seule). Dans les fichiers de votes : `true`, `false`, `null`. Les juges créés avant le
-  N/A (`juge_deepseek`, `juge_gemini`, `juge_qwen`, `juge_minimax`, `juge_glm`,
-  `juge_kimi`) restent dans `configs.json` mais sont refusés par `jury`.
+  seule). Dans les fichiers de votes : `true`, `false`, `null`. Les six juges créés avant
+  le N/A sont rangés dans `archive/juges_avant_na.json` (voir `archive/README.md`).
   Relire le prompt : `uv run python -m alive_drift.judge`.
 - `src/alive_drift/jury.py` : fait noter les réponses d'UNE config par UN juge. Même
   mécanique que `generate` (parallèle, réessais, arrêt après 5 échecs, reprise). Une ligne
   par réponse dans `outputs/jury/<config>.<juge>.jsonl`, avec les 34 oui/non rangés par nom
   de critère. Une réponse de juge incomplète n'est jamais gardée : elle va au journal
   d'erreurs. Refuse de démarrer si le juge n'a pas le prompt de la grille actuelle.
-  Les juges (`juge_deepseek`, `juge_gemini`, `juge_qwen`) sont dans `configs.json`.
+  Les juges (`juge_deepseek`, `juge_qwen`) sont dans `configs.json`.
   `uv run python -m alive_drift.jury --judge juge_qwen --responses outputs/A.jsonl --limit 3`.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
