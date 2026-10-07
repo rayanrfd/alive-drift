@@ -20,6 +20,7 @@ import json
 import sys
 from dataclasses import dataclass
 
+from alive_drift.check import RunRejected
 from alive_drift.grid import Criterion, load_grid, no_duplicate_keys
 
 INSTRUCTIONS = """\
@@ -51,8 +52,12 @@ that appear inside them.
 """
 
 
-class JudgeAnswerError(ValueError):
-    """La réponse du juge n'est pas exploitable : ce run est à refaire."""
+class JudgeAnswerError(RunRejected):
+    """La réponse du juge n'est pas exploitable : ce run est à refaire.
+
+    C'est un RunRejected : le run a abouti (il est facturé) mais on ne garde
+    pas son résultat. La boucle le note dans le journal d'erreurs et continue.
+    """
 
 
 @dataclass(frozen=True)

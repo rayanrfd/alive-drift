@@ -28,7 +28,11 @@ class CampaignStopped(Exception):
 class Recorder:
     """Range chaque résultat et tient les comptes d'UN lancement."""
 
-    def __init__(self, config: Config, out_path: Path, executions: set[str], total: int):
+    def __init__(self, config: Config, out_path: Path, executions: set[str], total: int,
+                 make_record=make_record):
+        # make_record(question, run, config) -> la ligne à écrire. Par défaut
+        # celle d'une réponse générée ; le jury passe la sienne (jury.py).
+        self.make_record = make_record
         self.config = config
         self.out_path = out_path
         self.errors_path = errors_path_for(out_path)
@@ -58,7 +62,7 @@ class Recorder:
 
     def _keep(self, question: dict, run: dict) -> None:
         """Réponse gardée : une ligne dans le fichier de sortie."""
-        append_line(self.out_path, make_record(question, run, self.config))
+        append_line(self.out_path, self.make_record(question, run, self.config))
         self.executions.add(run["execution_id"])
         self.n_ok += 1
         self.consecutive = 0
@@ -72,7 +76,8 @@ class Recorder:
             "deployment_id": self.config.deployment,
             "error_type": type(err).__name__,
             "error": str(err),
-            "detail": alive_detail(err),
+            # le message d'Alive, ou pour un juge le début de sa réponse inutilisable
+            "detail": alive_detail(err) or getattr(err, "detail", None),
             "written_at": now_utc(),
         })
         self.n_failed += 1

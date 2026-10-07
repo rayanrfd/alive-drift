@@ -53,6 +53,13 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   déploiement du juge), `user_message(question, réponse)` (le message de chaque run),
   `parse_verdicts(contenu, grid)` (34 oui/non par nom de critère, tout ou rien).
   Relire le prompt : `uv run python -m alive_drift.judge`.
+- `src/alive_drift/jury.py` : fait noter les réponses d'UNE config par UN juge. Même
+  mécanique que `generate` (parallèle, réessais, arrêt après 5 échecs, reprise). Une ligne
+  par réponse dans `outputs/jury/<config>.<juge>.jsonl`, avec les 34 oui/non rangés par nom
+  de critère. Une réponse de juge incomplète n'est jamais gardée : elle va au journal
+  d'erreurs. Refuse de démarrer si le juge n'a pas le prompt de la grille actuelle.
+  Les juges (`juge_deepseek`, `juge_gemini`, `juge_qwen`) sont dans `configs.json`.
+  `uv run python -m alive_drift.jury --judge juge_qwen --responses outputs/A.jsonl --limit 3`.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
 
