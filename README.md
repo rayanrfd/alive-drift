@@ -46,6 +46,11 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
 - `src/alive_drift/build_grid.py` : reconstruit la grille depuis le jeu HealthBench
   (Hugging Face, public) et la compare à `data/criteria.json`. Aucun appel à Alive :
   `uv run python -m alive_drift.build_grid`.
+- `src/alive_drift/judge.py` : ce qu'on envoie à un juge et comment on lit sa réponse.
+  `system_prompt(grid)` (consignes + 34 critères numérotés, fixé à la création du
+  déploiement du juge), `user_message(question, réponse)` (le message de chaque run),
+  `parse_verdicts(contenu, grid)` (34 oui/non par nom de critère, tout ou rien).
+  Relire le prompt : `uv run python -m alive_drift.judge`.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
 
