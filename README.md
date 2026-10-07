@@ -17,6 +17,10 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   coupe ; jamais pour une erreur de notre requête ni pour un run rejeté.
 - `configs.json` + `src/alive_drift/config.py` : les configs, décrites une fois
   (room, déploiement, modèle, effort de raisonnement) et choisies par leur nom.
+- `src/alive_drift/deploy.py` : crée un déploiement de mesure sur Alive (room,
+  déploiement, raisonnement), vérifie les réglages renvoyés par Alive, puis ajoute
+  la config à `configs.json`. Gratuit, aucun run :
+  `uv run python -m alive_drift.deploy --name B --model openai/gpt-4.1-mini --system-prompt "..."`.
 - `src/alive_drift/generate.py` : un run par question pour UNE config (A, A_bis, B).
   Il assemble trois pièces : `files.py` (lire les questions, écrire les lignes,
   relire ce qui est fait), `pool.py` (envoyer plusieurs questions à la fois et

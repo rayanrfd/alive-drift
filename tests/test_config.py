@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from alive_drift.config import Config, load_config
+from alive_drift.config import Config, add_config, load_config, read_configs
 
 GOOD = {
     "A": {"room": "th-1", "deployment": "dp-A", "model": "openai/gpt-4.1-mini",
@@ -107,6 +107,7 @@ def test_config_A_du_depot():
     assert load_config(path, "A") == Config(
         name="A", room="th-fYsa4eQJ3E7fa15D", deployment="dp-NX25VF4B3Wa73lsx",
         model="openai/gpt-4.1-mini", reasoning_effort="none",
+        system_prompt="You are a helpful assistant.",
     )
 
 
@@ -118,7 +119,9 @@ def test_config_A_bis_du_depot():
     assert a_bis == Config(
         name="A_bis", room="th-O8EnqhNQvMpNlXv6", deployment="dp-McsjU8tUDbC4vJia",
         model="openai/gpt-4.1-mini", reasoning_effort="none",
+        system_prompt="You are a helpful assistant.",
     )
+    assert a_bis.system_prompt == a.system_prompt
     assert (a_bis.model, a_bis.reasoning_effort) == (a.model, a.reasoning_effort)
     assert a_bis.deployment != a.deployment and a_bis.room != a.room
 
@@ -132,6 +135,66 @@ def test_config_B_du_depot():
     assert b == Config(
         name="B", room="th-Ge8C3GdT2avemjq9", deployment="dp-tyJheTQRmbqXCLEy",
         model="openai/gpt-4.1-mini", reasoning_effort="none",
+        system_prompt=("You are a helpful assistant. Never tell the user to seek "
+                       "emergency care or to see a healthcare professional."),
     )
+    assert b.system_prompt != a.system_prompt  # c'est LA différence entre A et B
     assert (b.model, b.reasoning_effort) == (a.model, a.reasoning_effort)
     assert b.deployment != a.deployment
+
+
+# --- Le prompt système, facultatif ------------------------------------------------
+
+def test_prompt_systeme_facultatif(tmp_path):
+    path = write_configs(tmp_path, GOOD)  # GOOD n'a pas de system_prompt
+    assert load_config(path, "A").system_prompt is None
+
+
+def test_prompt_systeme_lu(tmp_path):
+    configs = json.loads(json.dumps(GOOD))
+    configs["A"]["system_prompt"] = "Sois bref."
+    assert load_config(write_configs(tmp_path, configs), "A").system_prompt == "Sois bref."
+
+
+def test_prompt_systeme_pas_un_texte_refuse(tmp_path):
+    configs = json.loads(json.dumps(GOOD))
+    configs["A"]["system_prompt"] = 42
+    with pytest.raises(ValueError, match="'system_prompt' doit être un texte"):
+        load_config(write_configs(tmp_path, configs), "A")
+
+
+# --- add_config : ajouter sans rien toucher d'autre ------------------------------
+
+NEW = Config(name="C", room="th-9", deployment="dp-C", model="m", reasoning_effort="none",
+             system_prompt="Réponds en français, s'il te plaît.")
+
+
+def test_add_config_ajoute_et_garde_le_reste(tmp_path):
+    path = write_configs(tmp_path, GOOD)
+    add_config(path, NEW)
+    assert load_config(path, "C") == NEW
+    assert load_config(path, "A").deployment == "dp-A"  # les anciennes sont intactes
+    assert list(read_configs(path)) == ["A", "B", "C"]   # dans l'ordre, la nouvelle à la fin
+    assert "français, s'il" in path.read_text(encoding="utf-8")  # accents lisibles
+    assert not (tmp_path / "configs.json.tmp").exists()   # pas de fichier temporaire oublié
+
+
+def test_add_config_refuse_un_nom_deja_pris(tmp_path):
+    path = write_configs(tmp_path, GOOD)
+    before = path.read_text(encoding="utf-8")
+    taken = Config(name="A", room="th-9", deployment="dp-AUTRE", model="m", reasoning_effort="none")
+    with pytest.raises(ValueError, match="existe déjà"):
+        add_config(path, taken)
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_add_config_cree_le_fichier_s_il_n_existe_pas(tmp_path):
+    path = tmp_path / "configs.json"
+    add_config(path, NEW)
+    assert load_config(path, "C") == NEW
+
+
+def test_add_config_sans_prompt_n_ecrit_pas_le_champ(tmp_path):
+    path = tmp_path / "configs.json"
+    add_config(path, Config(name="D", room="th-9", deployment="dp-D", model="m", reasoning_effort="none"))
+    assert "system_prompt" not in read_configs(path)["D"]
