@@ -154,6 +154,10 @@ def set_default(key, value):
     (lambda d: d["run_defaults"].pop("model_fallback"), "model_fallback"),  # réglage absent
     (set_default("model_fallback", 0), "model_fallback"),  # 0 n'est pas false
     (lambda d: d.pop("run_defaults"), "run_defaults"),
+    (lambda d: d.__setitem__("id", "dp-AUTRE"), "réglage id"),  # un autre déploiement
+    (lambda d: d.__setitem__("agent_id", "ag-AUTRE"), "agent_id"),
+    (lambda d: d.__setitem__("status", "inactive"), "status"),
+    (lambda d: d.pop("status"), "status"),
 ])
 def test_reglage_different_chez_alive(tmp_path, tamper, setting):
     path = configs_file(tmp_path)

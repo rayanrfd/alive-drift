@@ -68,6 +68,13 @@ def test_theme_of():
 
 # --- L'empreinte -----------------------------------------------------------------
 
+def test_empreinte_de_la_grille_verifiee_contre_healthbench():
+    # Empreinte relevée le 07/10, le jour où build_grid a confirmé que la grille
+    # est identique au jeu HealthBench. Si ce test casse, un des 34 textes,
+    # noms ou poids a changé : ne pas corriger le test, relancer build_grid.
+    assert grid_fingerprint(load_grid(REPO_GRID)) == "2e3eea4db18f"
+
+
 def test_empreinte_stable_et_sensible(tmp_path):
     grid = load_grid(REPO_GRID)
     assert grid_fingerprint(grid) == grid_fingerprint(load_grid(REPO_GRID))  # stable
@@ -85,6 +92,14 @@ def test_empreinte_independante_de_l_ordre_du_fichier(tmp_path):
 
 
 # --- Une grille abîmée est refusée -------------------------------------------------
+
+def test_cle_en_double_dans_un_critere_refusee(tmp_path):
+    text = REPO_GRID.read_text(encoding="utf-8")
+    path = tmp_path / "criteria.json"
+    path.write_text(text.replace('"points": 5.0,', '"points": 5.0, "points": 7.0,', 1), encoding="utf-8")
+    with pytest.raises(ValueError, match="clé en double"):
+        load_grid(path)
+
 
 def drop_one(criteria):
     criteria.pop()
@@ -105,6 +120,8 @@ def set_field(field, value):
     (set_field("theme", "hedging"), "incohérent"),
     (set_field("points", 0), "points invalides"),
     (set_field("points", "5"), "points invalides"),
+    (set_field("points", float("nan")), "points invalides"),
+    (set_field("points", float("inf")), "points invalides"),
     (set_field("name", ""), "sans nom"),
     (set_field("name", "nutrition_adulte_exact"), "thème inconnu"),
 ])

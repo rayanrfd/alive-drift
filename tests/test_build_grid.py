@@ -67,6 +67,26 @@ def test_compare():
     assert compare(built[:1], built) == ["absent du jeu de données : hedging_no-uncertainty_accurate"]
 
 
+def test_compare_un_nom_en_double_est_une_difference():
+    built = extract_criteria(ROWS)
+    wrong = dict(built[0], text="FAUX")
+    # le faux critère est caché par le vrai, qui vient après lui : il faut le voir quand même
+    assert compare(built, [wrong] + built) == [
+        "en double dans le dépôt : emergency_referrals_emergent_emergency_behavior"]
+    assert compare([wrong] + built, built) == [
+        "en double dans le jeu de données : emergency_referrals_emergent_emergency_behavior"]
+
+
+def test_main_cle_en_double_dans_la_grille_code_2(tmp_path, capsys):
+    source = tmp_path / "consensus.jsonl"
+    source.write_text(dataset_like_the_repo_grid(), encoding="utf-8")
+    text = REPO_GRID.read_text(encoding="utf-8")
+    grid = tmp_path / "criteria.json"
+    grid.write_text(text.replace('"points": 5.0,', '"points": 5.0, "points": 5.0,', 1), encoding="utf-8")
+    assert main(["--source", str(source), "--grid", str(grid)]) == 2
+    assert "clé en double : ['points']" in capsys.readouterr().err
+
+
 # --- La commande : comparer avec la grille du dépôt --------------------------------
 
 def dataset_like_the_repo_grid():

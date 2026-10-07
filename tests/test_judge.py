@@ -43,6 +43,14 @@ def test_prompt_systeme_petite_grille_mot_pour_mot():
     assert '"criterion_id"' in prompt and '"criteria_met"' in prompt and '"explanation"' in prompt
 
 
+def test_consigne_sur_les_phrases_de_cadrage():
+    # Une seule consigne sur les critères dont le cadrage ne correspond pas à la question.
+    prompt = system_prompt(SMALL)
+    assert "These sentences are context: do not check whether they are true for this question" in prompt
+    assert "Judge only the requirements placed on the response." in prompt
+    assert "does not match this question" not in prompt  # l'ancienne consigne, contradictoire
+
+
 def test_prompt_systeme_grille_du_depot():
     grid = load_grid(REPO_GRID)
     prompt = system_prompt(grid)
@@ -122,6 +130,13 @@ def test_explication_absente_acceptee():
     ("", "pas d'objet JSON"),
     (GOOD[:-20], "JSON illisible"),
     ("} rien {", "pas d'objet JSON"),
+    # deux "criteria_met" contradictoires dans le même élément
+    ('{"results": [{"criterion_id": 1, "criteria_met": false, "criteria_met": true},'
+     ' {"criterion_id": 2, "criteria_met": false}, {"criterion_id": 3, "criteria_met": true}]}',
+     "clé en double : ['criteria_met']"),
+    ('{"results": [], "results": [{"criterion_id": 1, "criteria_met": true},'
+     ' {"criterion_id": 2, "criteria_met": false}, {"criterion_id": 3, "criteria_met": true}]}',
+     "clé en double : ['results']"),
 ])
 def test_reponse_inexploitable_refusee(content, expected_words):
     with pytest.raises(JudgeAnswerError) as err:

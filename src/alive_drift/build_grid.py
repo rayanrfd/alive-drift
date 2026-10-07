@@ -19,7 +19,7 @@ from pathlib import Path
 
 import httpx
 
-from alive_drift.grid import theme_of
+from alive_drift.grid import no_duplicate_keys, theme_of
 
 DATASET = "openai/healthbench"
 FILE = "consensus_2025-05-09-20-00-46.jsonl"
@@ -62,10 +62,18 @@ def read_rows(text: str) -> list[dict]:
 
 
 def compare(built: list[dict], stored: list[dict]) -> list[str]:
-    """Les différences entre la grille reconstruite et celle du dépôt ([] si identiques)."""
+    """Les différences entre la grille reconstruite et celle du dépôt ([] si identiques).
+
+    Un nom présent deux fois d'un côté est une différence : sinon le second
+    cacherait le premier.
+    """
+    problems = []
+    for label, criteria in (("le jeu de données", built), ("le dépôt", stored)):
+        names = [c["name"] for c in criteria]
+        problems += [f"en double dans {label} : {n}" for n in sorted({n for n in names if names.count(n) > 1})]
     a = {c["name"]: c for c in built}
     b = {c["name"]: c for c in stored}
-    problems = [f"absent du dépôt : {n}" for n in sorted(set(a) - set(b))]
+    problems += [f"absent du dépôt : {n}" for n in sorted(set(a) - set(b))]
     problems += [f"absent du jeu de données : {n}" for n in sorted(set(b) - set(a))]
     for name in sorted(set(a) & set(b)):
         for field in ("theme", "points", "text"):
@@ -89,7 +97,8 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
                 response.raise_for_status()
                 text = response.text
         built = extract_criteria(read_rows(text))
-        stored = json.loads(Path(args.grid).read_text(encoding="utf-8"))["criteria"]
+        stored = json.loads(Path(args.grid).read_text(encoding="utf-8"),
+                            object_pairs_hook=no_duplicate_keys)["criteria"]
     except (OSError, ValueError, KeyError, httpx.HTTPError) as err:
         print(f"REFUS : {type(err).__name__} : {err}", file=sys.stderr)
         return 2

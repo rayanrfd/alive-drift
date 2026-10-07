@@ -44,17 +44,21 @@ class DeployError(Exception):
     """Le déploiement n'a pas pu être créé, ou n'a pas les réglages demandés."""
 
 
-def check_deployment(deployment: dict, *, model: str, system_prompt: str,
-                     reasoning_effort: str) -> None:
+def check_deployment(deployment: dict, *, deployment_id: str, agent: str, model: str,
+                     system_prompt: str, reasoning_effort: str) -> None:
     """Compare les réglages renvoyés par Alive à ceux demandés. Lève DeployError au premier écart.
 
-    Un réglage absent de la réponse compte comme un écart, sauf `skills`,
-    qu'Alive ne renvoie pas.
+    On vérifie aussi que c'est bien CE déploiement (id), lié à NOTRE agent,
+    et qu'il est actif. Un réglage absent de la réponse compte comme un écart,
+    sauf `skills`, qu'Alive ne renvoie pas.
     """
     defaults = deployment.get("run_defaults")
     if not isinstance(defaults, dict):
         raise DeployError("la réponse d'Alive n'a pas de bloc 'run_defaults'")
     expected = {
+        "id": (deployment.get("id"), deployment_id),
+        "agent_id": (deployment.get("agent_id"), agent),
+        "status": (deployment.get("status"), "active"),
         "model": (deployment.get("model"), model),
         "reasoning_effort": (deployment.get("reasoning_effort"), reasoning_effort),
         "system_prompt": (defaults.get("system_prompt"), system_prompt),
@@ -113,8 +117,8 @@ def deploy(client: httpx.Client, configs_path, *, name: str, model: str, system_
 
     # 4. Vérifier, puis seulement alors enregistrer.
     try:
-        check_deployment(deployment, model=model, system_prompt=system_prompt,
-                         reasoning_effort=reasoning_effort)
+        check_deployment(deployment, deployment_id=deployment_id, agent=agent, model=model,
+                         system_prompt=system_prompt, reasoning_effort=reasoning_effort)
     except DeployError as err:
         raise DeployError(f"{err} ; {created}") from None
     config = Config(name=name, room=room, deployment=deployment_id, model=model,

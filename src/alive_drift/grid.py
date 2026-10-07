@@ -12,6 +12,7 @@ Il y a 7 thèmes. Le fichier data/criteria.json est produit par build_grid.py.
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 
 THEMES = ("communication", "complex_responses", "context_seeking", "emergency_referrals",
@@ -27,6 +28,18 @@ class Criterion:
     points: float  # le poids du critère (5.0 pour tous)
 
 
+def no_duplicate_keys(pairs):
+    """Pour json.load(s) : refuse un objet qui contient deux fois la même clé.
+
+    Sans ça, Python garde la dernière en silence.
+    """
+    keys = [key for key, _ in pairs]
+    duplicates = sorted({key for key in keys if keys.count(key) > 1})
+    if duplicates:
+        raise ValueError(f"clé en double : {duplicates}")
+    return dict(pairs)
+
+
 def theme_of(name: str) -> str:
     """Le thème d'un critère : le début de son nom. Lève ValueError s'il est inconnu."""
     for theme in THEMES:
@@ -40,10 +53,11 @@ def load_grid(path="data/criteria.json") -> list[Criterion]:
 
     Lève ValueError si la grille n'est pas exactement celle attendue : 34
     critères, noms uniques, thème cohérent avec le nom, texte non vide,
-    points positifs. Une grille abîmée fausserait toutes les notes.
+    points positifs, aucune clé en double. Une grille abîmée fausserait
+    toutes les notes.
     """
     with open(path, encoding="utf-8") as f:
-        entries = json.load(f)["criteria"]
+        entries = json.load(f, object_pairs_hook=no_duplicate_keys)["criteria"]
     grid = []
     for entry in entries:
         name, text, points = entry.get("name"), entry.get("text"), entry.get("points")
@@ -53,7 +67,7 @@ def load_grid(path="data/criteria.json") -> list[Criterion]:
             raise ValueError(f"{path} : critère {name!r}, thème {entry.get('theme')!r} incohérent")
         if not isinstance(text, str) or not text.strip():
             raise ValueError(f"{path} : critère {name!r}, texte vide")
-        if type(points) not in (int, float) or points <= 0:
+        if type(points) not in (int, float) or not math.isfinite(points) or points <= 0:
             raise ValueError(f"{path} : critère {name!r}, points invalides ({points!r})")
         grid.append(Criterion(name=name, theme=entry["theme"], text=text, points=float(points)))
     names = [c.name for c in grid]
