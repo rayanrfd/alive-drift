@@ -2,7 +2,8 @@
 
 Pour chaque réponse : un run Alive sur le déploiement du juge (le message est
 la question et la réponse, voir judge.py), puis une ligne écrite tout de suite
-dans le fichier de sortie, avec les 34 oui/non du juge.
+dans le fichier de sortie, avec les 34 verdicts du juge (true, false, ou null
+pour "non applicable").
 
 C'est generate.py avec une autre entrée et une autre ligne de sortie : même
 parallélisme (pool.py), mêmes réessais (client.py), même arrêt après 5 échecs
@@ -102,6 +103,7 @@ def make_vote(response: dict, run: dict, judge: Config, grid: list[Criterion]) -
     `run` a passé check_run et porte en plus "verdicts" (voir attempt).
     Les votes sont rangés par NOM de critère : les scores (global, par thème,
     par critère) se recalculent ensuite sans rappeler le juge.
+    Un vote vaut true, false, ou null quand le juge a répondu "non applicable".
     """
     served = run["model"]["served"][0]
     tokens = run.get("tokens")
@@ -182,7 +184,7 @@ def load_votes(out_path: Path, responses: list[dict], judge: Config,
             raise ValueError(f"{where} : question {qid!r} en double")
         verdicts = vote.get("verdicts")
         if (not isinstance(verdicts, dict) or list(verdicts) != names
-                or any(type(met) is not bool for met in verdicts.values())):
+                or any(type(met) not in (bool, type(None)) for met in verdicts.values())):
             raise ValueError(f"{where} : votes incomplets ou mal formés")
         execution = vote.get("execution_id")
         if not isinstance(execution, str) or not execution:

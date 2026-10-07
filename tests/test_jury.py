@@ -3,7 +3,7 @@
 Le faux Alive joue le juge : il lit le numéro de la question dans le message
 reçu ("question 2") et répond selon `plan` = {numéro: liste d'étapes}, une
 étape par appel. Étapes possibles :
-  "ok"       les 3 verdicts attendus (true, false, true) ;
+  "ok"       les 3 verdicts attendus (met, not_met, not_applicable) ;
   "partiel"  il manque le critère 3 (réponse inutilisable) ;
   "bavard"   du texte sans JSON ;
   "gemini"   bon JSON mais servi par un autre modèle ;
@@ -45,14 +45,14 @@ JUDGE = Config(name="juge_test", room="th-JUGE", deployment="dp-JUGE", model=MOD
                reasoning_effort="none", judge_prompt=PROMPT)
 
 
-def verdicts_json(*mets):
+def verdicts_json(*words):
     return json.dumps({"results": [
-        {"criterion_id": n, "explanation": f"raison {n}", "criteria_met": met}
-        for n, met in enumerate(mets, start=1)]})
+        {"criterion_id": n, "explanation": f"raison {n}", "verdict": word}
+        for n, word in enumerate(words, start=1)]})
 
 
-CONTENTS = {"ok": verdicts_json(True, False, True),
-            "partiel": verdicts_json(True, False),
+CONTENTS = {"ok": verdicts_json("met", "not_met", "not_applicable"),
+            "partiel": verdicts_json("met", "not_met"),
             "bavard": "I think this response is quite good overall."}
 
 _numbers = itertools.count(1)
@@ -133,7 +133,7 @@ def test_trois_reponses_notees(tmp_path):
         "reasoning_effort": "none",
         "grid": grid_fingerprint(GRID),
         "judge_prompt": PROMPT,
-        "verdicts": {"communication_a": True, "hedging_b": False, "hedging_c": True},
+        "verdicts": {"communication_a": True, "hedging_b": False, "hedging_c": None},  # None = N/A
         "explanations": {"communication_a": "raison 1", "hedging_b": "raison 2", "hedging_c": "raison 3"},
         "model": MODEL,
         "provider": REAL_RUN["model"]["served"][0]["provider"],
@@ -262,6 +262,7 @@ def set_key(key, value):
     (set_key("response_execution_id", "ex-gen-A-AUTRE"), "n'est plus la même"),
     (set_key("verdicts", {"communication_a": True, "hedging_b": False}), "votes incomplets"),
     (set_key("verdicts", {"communication_a": True, "hedging_b": 0, "hedging_c": True}), "votes incomplets"),
+    (set_key("verdicts", {"communication_a": True, "hedging_b": "not_met", "hedging_c": None}), "votes incomplets"),
     (set_key("execution_id", ""), "execution_id absent"),
 ])
 def test_fichier_qui_n_est_pas_celui_de_la_campagne_refuse(tmp_path, change, words):
@@ -382,13 +383,13 @@ def setup_files(tmp_path, n=4):
 
 
 def full_grid_transport():
-    """Un juge qui rend 34 verdicts (critères pairs : true)."""
+    """Un juge qui rend 34 verdicts (critères pairs : met, les autres : not_applicable)."""
     requests = []
 
     def handler(request):
         requests.append(json.loads(request.content)["input"])
         content = json.dumps({"results": [
-            {"criterion_id": n, "explanation": "raison", "criteria_met": n % 2 == 0}
+            {"criterion_id": n, "explanation": "raison", "verdict": "met" if n % 2 == 0 else "not_applicable"}
             for n in range(1, 35)]})
         return httpx.Response(200, json=judge_run(content))
     return httpx.MockTransport(handler), requests
@@ -403,7 +404,9 @@ def test_main_note_et_range_dans_le_dossier_jury(tmp_path, monkeypatch, capsys):
     out = tmp_path / "jury" / "A.juge_test.jsonl"
     votes = read_jsonl(out)
     assert [v["question_id"] for v in votes] == ["0", "1"]  # ordre des questions, pas du fichier
-    assert len(votes[0]["verdicts"]) == 34 and sum(votes[0]["verdicts"].values()) == 17
+    assert len(votes[0]["verdicts"]) == 34
+    assert list(votes[0]["verdicts"].values()).count(True) == 17
+    assert list(votes[0]["verdicts"].values()).count(None) == 17  # N/A écrit null dans le fichier
     assert f"2 réponses notées, 0 échecs à ce lancement -> {out}" in capsys.readouterr().out
     assert TOKEN not in out.read_text(encoding="utf-8")
 
@@ -443,12 +446,13 @@ def test_main_sans_jeton_code_2(tmp_path, monkeypatch):
     assert requests == []
 
 
-def test_les_trois_juges_du_depot_portent_le_prompt_de_la_grille():
-    # Les juges de configs.json ont été créés avec la grille et les consignes
-    # d'aujourd'hui. Si ce test casse, la grille ou INSTRUCTIONS a changé depuis :
-    # il faut recréer les juges, pas corriger le test.
+def test_les_juges_d_avant_non_applicable_sont_refuses():
+    # Ces juges ont été créés le 07/10 avec l'ancienne consigne (oui/non, sans N/A).
+    # Leur déploiement existe toujours chez Alive : on vérifie qu'on ne peut plus
+    # les lancer par erreur, puisque leurs réponses n'auraient pas de champ "verdict".
     from alive_drift.config import load_config
     from alive_drift.grid import load_grid
     grid = load_grid(REPO / "data" / "criteria.json")
-    for name in ("juge_deepseek", "juge_gemini", "juge_qwen"):
-        check_judge(load_config(REPO / "configs.json", name), grid)
+    for name in ("juge_deepseek", "juge_gemini", "juge_qwen", "juge_minimax", "juge_glm", "juge_kimi"):
+        with pytest.raises(ValueError, match="créé avec le prompt 283c79ab9f9a"):
+            check_judge(load_config(REPO / "configs.json", name), grid)

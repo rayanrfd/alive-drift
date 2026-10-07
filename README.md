@@ -51,7 +51,11 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
 - `src/alive_drift/judge.py` : ce qu'on envoie à un juge et comment on lit sa réponse.
   `system_prompt(grid)` (consignes + 34 critères numérotés, fixé à la création du
   déploiement du juge), `user_message(question, réponse)` (le message de chaque run),
-  `parse_verdicts(contenu, grid)` (34 oui/non par nom de critère, tout ou rien).
+  `parse_verdicts(contenu, grid)` (34 verdicts par nom de critère, tout ou rien).
+  Trois verdicts : `met`, `not_met`, `not_applicable` (N/A, décidé d'après la question
+  seule). Dans les fichiers de votes : `true`, `false`, `null`. Les juges créés avant le
+  N/A (`juge_deepseek`, `juge_gemini`, `juge_qwen`, `juge_minimax`, `juge_glm`,
+  `juge_kimi`) restent dans `configs.json` mais sont refusés par `jury`.
   Relire le prompt : `uv run python -m alive_drift.judge`.
 - `src/alive_drift/jury.py` : fait noter les réponses d'UNE config par UN juge. Même
   mécanique que `generate` (parallèle, réessais, arrêt après 5 échecs, reprise). Une ligne
