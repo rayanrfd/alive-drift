@@ -54,5 +54,12 @@
     "model": "anthropic/claude-sonnet-5.5",
     "reasoning_effort": "low",
     "judge_prompt": "402721efd0f3"
+  },
+  "juge_haiku": {
+    "room": "th-F37nAKZCy8ArUbTN",
+    "deployment": "dp-mPYFYzCLFgoWyHDx",
+    "model": "anthropic/claude-haiku-4.5",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
   }
 }
