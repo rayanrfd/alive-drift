@@ -47,5 +47,26 @@
     "model": "qwen/qwen3.8-flash",
     "reasoning_effort": "none",
     "judge_prompt": "283c79ab9f9a"
+  },
+  "juge_minimax": {
+    "room": "th-KSCHYFafWwxWAz7z",
+    "deployment": "dp-kIqHWmMnOKU7CpXC",
+    "model": "minimax/minimax-m3",
+    "reasoning_effort": "none",
+    "judge_prompt": "283c79ab9f9a"
+  },
+  "juge_glm": {
+    "room": "th-5KAeAYJZc6rUPyco",
+    "deployment": "dp-vzZ7zs40yG1HnGrI",
+    "model": "z-ai/glm-5.3-flash",
+    "reasoning_effort": "none",
+    "judge_prompt": "283c79ab9f9a"
+  },
+  "juge_kimi": {
+    "room": "th-XfdSaYXIz18CgNBF",
+    "deployment": "dp-gup4vfM9iAUvUzUl",
+    "model": "moonshotai/kimi-k2-0905",
+    "reasoning_effort": "none",
+    "judge_prompt": "283c79ab9f9a"
   }
 }
