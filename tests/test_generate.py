@@ -625,6 +625,22 @@ def test_main_limit(tmp_path, monkeypatch, capsys):
     assert "3 réponses gardées, 0 échecs" in capsys.readouterr().out
 
 
+def test_main_utilise_le_jeton_du_fichier_env(tmp_path, monkeypatch):
+    for name in ("ALIVE_TOKEN", "ALIVE_ACCESS_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("ALIVE_ACCESS_TOKEN=jeton-du-fichier\n", encoding="utf-8")
+    args, out = cli_args(tmp_path, 2)
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers["Authorization"])
+        return httpx.Response(200, json=unique_run())
+
+    assert main(args, httpx.MockTransport(handler), env_file=env_file) == 0
+    assert seen == ["Bearer jeton-du-fichier"] * 2
+
+
 def test_main_avec_echec_code_1(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
     args, out = cli_args(tmp_path, 2)
@@ -678,10 +694,11 @@ def test_main_limit_negatif_code_2(tmp_path, monkeypatch):
 
 
 def test_main_sans_jeton(tmp_path, monkeypatch):
-    monkeypatch.delenv("ALIVE_TOKEN", raising=False)
+    for name in ("ALIVE_TOKEN", "ALIVE_ACCESS_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
     args, out = cli_args(tmp_path, 2)
     transport, inputs = fake_alive()
-    assert main(args, transport) == 2
+    assert main(args, transport, env_file=tmp_path / "absent.env") == 2
     assert inputs == []
     assert not out.exists()
 

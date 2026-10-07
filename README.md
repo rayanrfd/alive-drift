@@ -48,7 +48,9 @@ uv run pytest -q
 
 ## Jeton
 
-`export ALIVE_TOKEN=...` avant tout appel réel. Jamais dans un fichier commité.
+Une ligne `ALIVE_ACCESS_TOKEN=...` dans le fichier `.env` à la racine du dépôt
+(ignoré par git). Une variable du terminal `ALIVE_TOKEN` ou `ALIVE_ACCESS_TOKEN`
+passe avant le fichier. Jamais dans un fichier commité.
 
 ## Règles d'usage
 

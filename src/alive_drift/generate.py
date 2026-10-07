@@ -26,12 +26,11 @@ Ce fichier assemble trois pièces :
 
 Exemple sur 3 questions (3 runs payants, quelques millièmes de crédit) :
 
-    export ALIVE_TOKEN=...
+    (jeton dans le fichier .env : ALIVE_ACCESS_TOKEN=...)
     uv run python -m alive_drift.generate --config sonde --out outputs/sonde.jsonl --limit 3
 """
 
 import argparse
-import os
 import sys
 import threading
 from pathlib import Path
@@ -39,7 +38,7 @@ from pathlib import Path
 import httpx
 
 from alive_drift.check import RunRejected
-from alive_drift.client import make_client, run_with_retries
+from alive_drift.client import TOKEN_HELP, find_token, make_client, run_with_retries
 from alive_drift.config import Config, load_config
 from alive_drift.files import load_done, load_questions
 from alive_drift.pool import MAX_WORKERS, run_tasks
@@ -109,7 +108,7 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
 # --- Ligne de commande -----------------------------------------------------------
 
 def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = None,
-         sleep=None) -> int:
+         sleep=None, env_file=".env") -> int:
     parser = argparse.ArgumentParser(description="Génère les réponses d'une config sur Alive.")
     parser.add_argument("--config", required=True, help="nom d'une config de configs.json")
     parser.add_argument("--configs", default="configs.json", help="fichier des configs")
@@ -119,9 +118,9 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     parser.add_argument("--workers", type=int, default=1, help="questions envoyées en même temps (1 à 32, défaut 1)")
     args = parser.parse_args(argv)
 
-    token = os.environ.get("ALIVE_TOKEN")
+    token = find_token(env_file)
     if not token:
-        print("ALIVE_TOKEN absent : export ALIVE_TOKEN=... d'abord.", file=sys.stderr)
+        print(TOKEN_HELP, file=sys.stderr)
         return 2
 
     with make_client(token, transport) as client:

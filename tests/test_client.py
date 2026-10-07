@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from alive_drift.check import RunRejected
-from alive_drift.client import main, make_client, run_once
+from alive_drift.client import find_token, main, make_client, read_env_file, run_once
 from test_check import MODEL, REAL_RUN  # même vraie sortie que les tests de check
 
 TOKEN = "jeton-de-test"
@@ -116,8 +116,65 @@ def test_main_rejete(monkeypatch, capsys):
     assert "REJETÉ : servi par" in capsys.readouterr().out
 
 
-def test_main_sans_jeton(monkeypatch, capsys):
-    monkeypatch.delenv("ALIVE_TOKEN", raising=False)
+def no_token_in_terminal(monkeypatch):
+    for name in ("ALIVE_TOKEN", "ALIVE_ACCESS_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_main_sans_jeton(tmp_path, monkeypatch, capsys):
+    no_token_in_terminal(monkeypatch)
     transport, requests = fake_alive()
-    assert main(ARGS, transport) == 2
+    assert main(ARGS, transport, env_file=tmp_path / "absent.env") == 2
     assert requests == []  # aucun appel sans jeton
+    assert "Jeton Alive introuvable" in capsys.readouterr().err
+
+
+# --- Où le jeton est cherché ------------------------------------------------------
+
+def test_jeton_lu_dans_le_fichier_env(tmp_path, monkeypatch):
+    no_token_in_terminal(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text("ALIVE_ACCESS_TOKEN=jeton-du-fichier\n", encoding="utf-8")
+    assert find_token(env_file) == "jeton-du-fichier"
+
+
+def test_main_utilise_le_jeton_du_fichier_env(tmp_path, monkeypatch):
+    no_token_in_terminal(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text("ALIVE_ACCESS_TOKEN=jeton-du-fichier\n", encoding="utf-8")
+    transport, requests = fake_alive()
+    assert main(ARGS, transport, env_file=env_file) == 0
+    assert requests[0].headers["Authorization"] == "Bearer jeton-du-fichier"
+
+
+@pytest.mark.parametrize("name", ["ALIVE_TOKEN", "ALIVE_ACCESS_TOKEN"])
+def test_le_terminal_passe_avant_le_fichier(tmp_path, monkeypatch, name):
+    no_token_in_terminal(monkeypatch)
+    monkeypatch.setenv(name, "jeton-du-terminal")
+    env_file = tmp_path / ".env"
+    env_file.write_text("ALIVE_ACCESS_TOKEN=jeton-du-fichier\n", encoding="utf-8")
+    assert find_token(env_file) == "jeton-du-terminal"
+
+
+def test_pas_de_jeton_nulle_part(tmp_path, monkeypatch):
+    no_token_in_terminal(monkeypatch)
+    assert find_token(tmp_path / "absent.env") is None
+    empty = tmp_path / ".env"
+    empty.write_text("ALIVE_ACCESS_TOKEN=\nAUTRE=x\n", encoding="utf-8")
+    assert find_token(empty) is None  # une valeur vide ne compte pas
+
+
+def test_lecture_du_fichier_env(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "# un commentaire\n"
+        "\n"
+        "SIMPLE=abc\n"
+        'GUILLEMETS="avec espaces"\n'
+        "export EXPORTE='xyz'\n"
+        "AVEC_EGAL=a=b=c\n"
+        "ligne sans signe egal\n",
+        encoding="utf-8")
+    assert read_env_file(env_file) == {
+        "SIMPLE": "abc", "GUILLEMETS": "avec espaces", "EXPORTE": "xyz", "AVEC_EGAL": "a=b=c"}
+    assert read_env_file(tmp_path / "absent.env") == {}

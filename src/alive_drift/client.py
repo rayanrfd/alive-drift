@@ -6,7 +6,7 @@ Pas encore de parallélisme.
 
 Essai réel (un run, coût ~0,003 crédit) :
 
-    export ALIVE_TOKEN=...
+    (jeton dans le fichier .env : ALIVE_ACCESS_TOKEN=...)
     uv run python -m alive_drift.client th-... dp-... mistralai/mistral-small-24b-instruct-2501 \
         "What is a normal resting heart rate?"
 """
@@ -37,6 +37,46 @@ RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 # 06/10, il saturait ("Too many open files") environ tous les 100 runs et
 # revenait en quelques dizaines de secondes ; 3 essais en 7 s n'y suffisaient pas.
 RETRY_DELAYS_S = (5.0, 15.0, 30.0, 60.0)
+
+
+# Les deux noms acceptés pour le jeton, dans le terminal comme dans .env.
+TOKEN_NAMES = ("ALIVE_TOKEN", "ALIVE_ACCESS_TOKEN")
+TOKEN_HELP = ("Jeton Alive introuvable : mets une ligne ALIVE_ACCESS_TOKEN=... dans le "
+              "fichier .env du dépôt (il est ignoré par git).")
+
+
+def read_env_file(path) -> dict[str, str]:
+    """Lit un fichier .env : une ligne NOM=valeur par variable. {} si le fichier n'existe pas.
+
+    Tolère les lignes vides, les commentaires (#), le préfixe "export " et les
+    guillemets autour de la valeur.
+    """
+    values = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return values
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.removeprefix("export ").split("=", 1)
+        values[name.strip()] = value.strip().strip("\"'")
+    return values
+
+
+def find_token(env_file=".env") -> str | None:
+    """Le jeton Alive, ou None s'il est introuvable.
+
+    Cherché d'abord dans les variables du terminal, puis dans le fichier .env.
+    Le jeton n'est jamais affiché ni écrit ailleurs.
+    """
+    for source in (os.environ, read_env_file(env_file)):
+        for name in TOKEN_NAMES:
+            if source.get(name):
+                return source[name]
+    return None
 
 
 def make_client(token: str, transport: httpx.BaseTransport | None = None) -> httpx.Client:
@@ -113,7 +153,7 @@ def run_with_retries(client: httpx.Client, room_id: str, deployment_id: str,
 
 
 def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = None,
-         sleep=time.sleep) -> int:
+         sleep=time.sleep, env_file=".env") -> int:
     """Lance un run, affiche le JSON brut puis le verdict. Renvoie le code de sortie."""
     parser = argparse.ArgumentParser(description="Un run Alive, sortie brute + verdict.")
     parser.add_argument("room_id")
@@ -122,9 +162,9 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     parser.add_argument("question")
     args = parser.parse_args(argv)
 
-    token = os.environ.get("ALIVE_TOKEN")
+    token = find_token(env_file)
     if not token:
-        print("ALIVE_TOKEN absent : export ALIVE_TOKEN=... d'abord.", file=sys.stderr)
+        print(TOKEN_HELP, file=sys.stderr)
         return 2
 
     with make_client(token, transport) as client:
