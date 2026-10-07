@@ -39,6 +39,13 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
 - `src/alive_drift/summary.py` : résume un fichier de réponses et son journal
   d'erreurs (questions manquantes, providers, longueurs, coût, échecs par message).
   Ne lance aucun run : `uv run python -m alive_drift.summary outputs/A.jsonl`.
+- `data/criteria.json` + `src/alive_drift/grid.py` : la grille de notation, les 34
+  critères HealthBench Consensus (7 thèmes), appliquée telle quelle à toutes les
+  réponses. `load_grid()` refuse une grille abîmée ; `grid_fingerprint()` donne
+  l'empreinte à enregistrer avec chaque note.
+- `src/alive_drift/build_grid.py` : reconstruit la grille depuis le jeu HealthBench
+  (Hugging Face, public) et la compare à `data/criteria.json`. Aucun appel à Alive :
+  `uv run python -m alive_drift.build_grid`.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
 
