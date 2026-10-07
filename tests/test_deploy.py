@@ -10,6 +10,7 @@ vrai Alive (relevée le 07/10). `tamper` permet de fausser un réglage, et
 """
 
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -17,6 +18,8 @@ import pytest
 from alive_drift.client import make_client
 from alive_drift.config import Config, load_config, read_configs
 from alive_drift.deploy import DEFAULT_AGENT, DEFAULT_WORKSPACE, DeployError, deploy, main
+from alive_drift.grid import load_grid
+from alive_drift.judge import prompt_fingerprint, system_prompt as judge_system_prompt
 
 TOKEN = "jeton-de-test"
 PROMPT = "You are a helpful assistant. Sois bref."
@@ -258,3 +261,77 @@ def test_main_sans_jeton_code_2(tmp_path, monkeypatch):
     transport, requests = fake_alive()
     assert main(cli(configs_file(tmp_path)), transport, env_file=tmp_path / "absent.env") == 2
     assert requests == []
+
+
+# --- Un juge : --judge ---------------------------------------------------------------
+
+REPO_GRID = Path(__file__).parent.parent / "data" / "criteria.json"
+
+
+def judge_cli(path, *extra):
+    # argparse garde le dernier --grid : un test peut en donner un autre dans `extra`
+    return ["--name", "juge_qwen", "--model", "qwen/qwen3.8-flash", "--judge",
+            "--configs", str(path), "--grid", str(REPO_GRID), *extra]
+
+
+def test_juge_le_prompt_envoye_est_celui_de_la_grille(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    path = configs_file(tmp_path)
+    transport, requests = fake_alive()
+    expected = judge_system_prompt(load_grid(REPO_GRID))
+
+    assert main(judge_cli(path), transport) == 0
+    assert requests[1][2]["system_prompt"] == expected  # envoyé à Alive, entier
+    assert requests[1][2]["model"] == "qwen/qwen3.8-flash"
+    # la config garde l'empreinte, pas les 36 000 caractères
+    entry = read_configs(path)["juge_qwen"]
+    assert entry == {"room": "th-NEW", "deployment": "dp-NEW", "model": "qwen/qwen3.8-flash",
+                     "reasoning_effort": "none", "judge_prompt": prompt_fingerprint(expected)}
+    config = load_config(path, "juge_qwen")
+    assert config.system_prompt is None and config.judge_prompt == prompt_fingerprint(expected)
+    printed = capsys.readouterr().out
+    assert f"{len(expected)} caractères, empreinte {prompt_fingerprint(expected)}" in printed
+    assert "rubric_item" not in printed  # le prompt n'est pas déversé dans le terminal
+
+
+def test_juge_prompt_tronque_par_alive_config_non_ajoutee(tmp_path, monkeypatch, capsys):
+    # Si Alive coupe un prompt aussi long, la vérification le voit.
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    path = configs_file(tmp_path)
+
+    def truncate(deployment):
+        deployment["run_defaults"]["system_prompt"] = deployment["run_defaults"]["system_prompt"][:20000]
+    transport, _ = fake_alive(tamper=truncate)
+    assert main(judge_cli(path), transport) == 1
+    assert "juge_qwen" not in read_configs(path)
+    error = capsys.readouterr().err
+    assert "réglage system_prompt" in error and "caractères)" in error
+    assert len(error) < 1000  # les 36 000 caractères ne sont pas déversés dans le terminal
+
+
+def test_juge_grille_abimee_rien_n_est_cree(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    grid = tmp_path / "criteria.json"
+    grid.write_text('{"criteria": []}', encoding="utf-8")
+    transport, requests = fake_alive()
+    assert main(judge_cli(configs_file(tmp_path), "--grid", str(grid)), transport) == 2
+    assert requests == []
+    assert "0 critères au lieu de 34" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("args", [
+    ["--name", "X", "--model", "m"],                                         # ni l'un ni l'autre
+    ["--name", "X", "--model", "m", "--judge", "--system-prompt", "Sois bref."],  # les deux
+])
+def test_il_faut_exactement_un_prompt(tmp_path, monkeypatch, args):
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    transport, requests = fake_alive()
+    with pytest.raises(SystemExit):
+        main(args + ["--configs", str(configs_file(tmp_path))], transport)
+    assert requests == []
+
+
+def test_empreinte_de_prompt():
+    assert prompt_fingerprint("abc") == prompt_fingerprint("abc")
+    assert prompt_fingerprint("abc") != prompt_fingerprint("abc ")
+    assert len(prompt_fingerprint("abc")) == 12

@@ -13,6 +13,9 @@ Le prompt système est celui avec lequel le déploiement a été créé. C'est u
 trace : c'est le déploiement, côté Alive, qui l'applique. Il est facultatif
 (les configs écrites avant le 07/10 ne l'avaient pas).
 
+Un juge a un prompt système trop long pour ce fichier (les 34 critères). Sa
+config porte à la place "judge_prompt" : l'empreinte de ce prompt.
+
 On choisit une config par son NOM. On ne tape donc jamais le déploiement à la
 main : impossible de lancer "A" avec le déploiement de B.
 """
@@ -23,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 FIELDS = ("room", "deployment", "model", "reasoning_effort")  # obligatoires
-OPTIONAL_FIELDS = ("system_prompt",)
+OPTIONAL_FIELDS = ("system_prompt", "judge_prompt")
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,7 @@ class Config:
     model: str
     reasoning_effort: str
     system_prompt: str | None = None
+    judge_prompt: str | None = None  # juges seulement : empreinte du prompt système
 
 
 def _no_duplicate_keys(pairs):
@@ -81,10 +85,12 @@ def load_config(path, name: str) -> Config:
     unknown = sorted(set(entry) - set(FIELDS) - set(OPTIONAL_FIELDS))
     if unknown:
         raise ValueError(f"{path} : config {name!r}, champs inconnus {unknown}")
-    prompt = entry.get("system_prompt")
-    if prompt is not None and not isinstance(prompt, str):
-        raise ValueError(f"{path} : config {name!r}, 'system_prompt' doit être un texte")
-    return Config(name=name, system_prompt=prompt, **{field: entry[field] for field in FIELDS})
+    for field in OPTIONAL_FIELDS:
+        if entry.get(field) is not None and not isinstance(entry[field], str):
+            raise ValueError(f"{path} : config {name!r}, {field!r} doit être un texte")
+    return Config(name=name, system_prompt=entry.get("system_prompt"),
+                  judge_prompt=entry.get("judge_prompt"),
+                  **{field: entry[field] for field in FIELDS})
 
 
 def add_config(path, config: Config) -> None:
@@ -99,8 +105,9 @@ def add_config(path, config: Config) -> None:
     if config.name in configs:
         raise ValueError(f"{path} : la config {config.name!r} existe déjà")
     entry = {field: getattr(config, field) for field in FIELDS}
-    if config.system_prompt is not None:
-        entry["system_prompt"] = config.system_prompt
+    for field in OPTIONAL_FIELDS:
+        if getattr(config, field) is not None:
+            entry[field] = getattr(config, field)
     configs[config.name] = entry
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(configs, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

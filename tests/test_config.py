@@ -163,6 +163,23 @@ def test_prompt_systeme_pas_un_texte_refuse(tmp_path):
         load_config(write_configs(tmp_path, configs), "A")
 
 
+def test_config_de_juge_empreinte_du_prompt(tmp_path):
+    path = tmp_path / "configs.json"
+    judge = Config(name="juge_qwen", room="th-9", deployment="dp-J", model="qwen/qwen3.8-flash",
+                   reasoning_effort="none", judge_prompt="0123456789ab")
+    add_config(path, judge)
+    assert read_configs(path)["juge_qwen"]["judge_prompt"] == "0123456789ab"
+    assert "system_prompt" not in read_configs(path)["juge_qwen"]
+    assert load_config(path, "juge_qwen") == judge
+
+
+def test_empreinte_de_juge_pas_un_texte_refusee(tmp_path):
+    configs = json.loads(json.dumps(GOOD))
+    configs["A"]["judge_prompt"] = 42
+    with pytest.raises(ValueError, match="'judge_prompt' doit être un texte"):
+        load_config(write_configs(tmp_path, configs), "A")
+
+
 # --- add_config : ajouter sans rien toucher d'autre ------------------------------
 
 NEW = Config(name="C", room="th-9", deployment="dp-C", model="m", reasoning_effort="none",

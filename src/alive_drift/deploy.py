@@ -13,6 +13,10 @@ Aucun run n'est lancé : créer un déploiement est gratuit.
     uv run python -m alive_drift.deploy --name B \\
         --model openai/gpt-4.1-mini \\
         --system-prompt "You are a helpful assistant."
+
+Pour un juge, le prompt système est fabriqué depuis la grille (judge.py) :
+
+    uv run python -m alive_drift.deploy --name juge_qwen --model qwen/qwen3.8-flash --judge
 """
 
 import argparse
@@ -24,6 +28,8 @@ import httpx
 from alive_drift.client import TOKEN_HELP, find_token, make_client
 from alive_drift.config import Config, add_config, read_configs
 from alive_drift.files import alive_detail
+from alive_drift.grid import load_grid
+from alive_drift.judge import prompt_fingerprint, system_prompt as judge_system_prompt
 
 # Le workspace de test (options d'évolution des agents coupées) et l'agent
 # neutre (prompt vide), créés à la main le 01/10.
@@ -42,6 +48,12 @@ RECIPE = {
 
 class DeployError(Exception):
     """Le déploiement n'a pas pu être créé, ou n'a pas les réglages demandés."""
+
+
+def short(value) -> str:
+    """`value` pour un message d'erreur : coupé s'il est long (le prompt d'un juge)."""
+    text = repr(value)
+    return text if len(text) <= 120 else f"{text[:120]}… ({len(text)} caractères)"
 
 
 def check_deployment(deployment: dict, *, deployment_id: str, agent: str, model: str,
@@ -69,13 +81,16 @@ def check_deployment(deployment: dict, *, deployment_id: str, agent: str, model:
     }
     for setting, (got, wanted) in expected.items():
         if got != wanted or type(got) is not type(wanted):
-            raise DeployError(f"réglage {setting} : Alive a {got!r}, demandé {wanted!r}")
+            raise DeployError(f"réglage {setting} : Alive a {short(got)}, demandé {short(wanted)}")
 
 
 def deploy(client: httpx.Client, configs_path, *, name: str, model: str, system_prompt: str,
            reasoning_effort: str = "none", workspace: str = DEFAULT_WORKSPACE,
-           agent: str = DEFAULT_AGENT) -> Config:
+           agent: str = DEFAULT_AGENT, judge: bool = False) -> Config:
     """Crée la room et le déploiement, vérifie les réglages, ajoute la config. Renvoie la config.
+
+    judge=True : la config garde l'empreinte du prompt (champ judge_prompt)
+    au lieu du prompt entier. Ce qui est envoyé à Alive est identique.
 
     Lève ValueError, sans rien créer, si le nom est vide ou déjà pris.
     Lève DeployError si Alive refuse une étape ou si les réglages ne sont pas
@@ -122,7 +137,9 @@ def deploy(client: httpx.Client, configs_path, *, name: str, model: str, system_
     except DeployError as err:
         raise DeployError(f"{err} ; {created}") from None
     config = Config(name=name, room=room, deployment=deployment_id, model=model,
-                    reasoning_effort=reasoning_effort, system_prompt=system_prompt)
+                    reasoning_effort=reasoning_effort,
+                    system_prompt=None if judge else system_prompt,
+                    judge_prompt=prompt_fingerprint(system_prompt) if judge else None)
     add_config(configs_path, config)
     return config
 
@@ -132,12 +149,24 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     parser = argparse.ArgumentParser(description="Crée un déploiement de mesure sur Alive.")
     parser.add_argument("--name", required=True, help="nom de la config à créer, ex. B")
     parser.add_argument("--model", required=True, help="ex. openai/gpt-4.1-mini")
-    parser.add_argument("--system-prompt", required=True, help="le prompt système, entre guillemets")
+    prompt = parser.add_mutually_exclusive_group(required=True)
+    prompt.add_argument("--system-prompt", help="le prompt système, entre guillemets")
+    prompt.add_argument("--judge", action="store_true",
+                        help="un juge : prompt système = consignes + grille (voir judge.py)")
+    parser.add_argument("--grid", default="data/criteria.json", help="la grille, avec --judge")
     parser.add_argument("--reasoning-effort", default="none", help="défaut : none")
     parser.add_argument("--configs", default="configs.json", help="fichier des configs")
     parser.add_argument("--workspace", default=DEFAULT_WORKSPACE)
     parser.add_argument("--agent", default=DEFAULT_AGENT)
     args = parser.parse_args(argv)
+
+    system_prompt = args.system_prompt
+    if args.judge:
+        try:
+            system_prompt = judge_system_prompt(load_grid(args.grid))
+        except (OSError, ValueError, KeyError) as err:
+            print(f"REFUS : {err}", file=sys.stderr)
+            return 2
 
     token = find_token(env_file)
     if not token:
@@ -147,9 +176,9 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     with make_client(token, transport) as client:
         try:
             config = deploy(client, args.configs, name=args.name, model=args.model,
-                            system_prompt=args.system_prompt,
+                            system_prompt=system_prompt,
                             reasoning_effort=args.reasoning_effort,
-                            workspace=args.workspace, agent=args.agent)
+                            workspace=args.workspace, agent=args.agent, judge=args.judge)
         except (ValueError, OSError) as err:
             print(f"REFUS : {err}", file=sys.stderr)
             return 2
@@ -161,7 +190,11 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     print(f"  déploiement      : {config.deployment}")
     print(f"  modèle           : {config.model}")
     print(f"  raisonnement     : {config.reasoning_effort}")
-    print(f"  prompt système   : {config.system_prompt}")
+    if args.judge:
+        print(f"  prompt système   : celui des juges, {len(system_prompt)} caractères, "
+              f"empreinte {config.judge_prompt}")
+    else:
+        print(f"  prompt système   : {config.system_prompt}")
     print("  vérifié chez Alive : pas d'outils, pas de contexte, pas de fallback")
     return 0
 

@@ -15,6 +15,7 @@ ce qu'on cherche. Les numéros sont retraduits en noms à la lecture.
 Voir le prompt complet :    uv run python -m alive_drift.judge
 """
 
+import hashlib
 import json
 import sys
 from dataclasses import dataclass
@@ -66,6 +67,16 @@ def system_prompt(grid: list[Criterion]) -> str:
     for number, criterion in enumerate(grid, start=1):
         parts.append(f'<rubric_item id="{number}">\n{criterion.text.strip()}\n</rubric_item>')
     return "\n".join(parts)
+
+
+def prompt_fingerprint(prompt: str) -> str:
+    """Empreinte courte d'un prompt système de juge.
+
+    Le prompt (36 000 caractères) vit dans le déploiement, chez Alive. Dans
+    configs.json on ne garde que cette empreinte : avant de noter, on recalcule
+    le prompt depuis la grille et on vérifie que c'est bien celui du juge.
+    """
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
 
 
 def user_message(question: str, answer: str) -> str:

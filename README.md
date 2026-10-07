@@ -21,6 +21,8 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   déploiement, raisonnement), vérifie les réglages renvoyés par Alive, puis ajoute
   la config à `configs.json`. Gratuit, aucun run :
   `uv run python -m alive_drift.deploy --name B --model openai/gpt-4.1-mini --system-prompt "..."`.
+  Pour un juge, `--judge` remplace `--system-prompt` : le prompt est fabriqué depuis la
+  grille, et la config garde son empreinte (`judge_prompt`) au lieu du texte entier.
 - `src/alive_drift/generate.py` : un run par question pour UNE config (A, A_bis, B).
   Il assemble trois pièces : `files.py` (lire les questions, écrire les lignes,
   relire ce qui est fait), `pool.py` (envoyer plusieurs questions à la fois et
