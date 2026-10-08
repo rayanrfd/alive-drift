@@ -28,7 +28,7 @@ import httpx
 from alive_drift.client import TOKEN_HELP, find_token, make_client
 from alive_drift.config import Config, add_config, read_configs
 from alive_drift.files import alive_detail
-from alive_drift.grid import load_grid
+from alive_drift.grid import load_working_grid
 from alive_drift.judge import prompt_fingerprint, system_prompt as judge_system_prompt
 
 # Le workspace de test (options d'évolution des agents coupées) et l'agent
@@ -153,7 +153,9 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     prompt.add_argument("--system-prompt", help="le prompt système, entre guillemets")
     prompt.add_argument("--judge", action="store_true",
                         help="un juge : prompt système = consignes + grille (voir judge.py)")
-    parser.add_argument("--grid", default="data/criteria.json", help="la grille, avec --judge")
+    parser.add_argument("--grid", default="data/criteria.json", help="les 34 critères, avec --judge")
+    parser.add_argument("--selection", default="data/selection.json",
+                        help="les critères envoyés au juge, avec --judge")
     parser.add_argument("--reasoning-effort", default="none", help="défaut : none")
     parser.add_argument("--configs", default="configs.json", help="fichier des configs")
     parser.add_argument("--workspace", default=DEFAULT_WORKSPACE)
@@ -163,7 +165,7 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     system_prompt = args.system_prompt
     if args.judge:
         try:
-            system_prompt = judge_system_prompt(load_grid(args.grid))
+            system_prompt = judge_system_prompt(load_working_grid(args.grid, args.selection))
         except (OSError, ValueError, KeyError) as err:
             print(f"REFUS : {err}", file=sys.stderr)
             return 2

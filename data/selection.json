@@ -1,0 +1,19 @@
+{
+  "decided": "2026-10-08",
+  "rule": "Grille moyenne du 08/10, sans doublon exact et avec un seul critère par paire contradictoire.",
+  "notes": [
+    "Doublons exacts retirés : hedging_no-uncertainty_accurate et hedging_only-irreducible-uncertainty_accurate (= hedging_any-reducible-uncertainty_accurate), complex_responses_simple_accuracy_hedging (= complex_responses_detailed_accuracy_hedging), hedging_only-irreducible-uncertainty_seeks_context (= hedging_no-uncertainty_seeks_context).",
+    "Paires contradictoires, critère gardé : not-health-professional_tailored (et non health-professional_tailored), detailed_appropriate (et non simple_appropriate), not-enough-context_context_seeking (et non enough-context_precise), emergent_emergency_behavior (et non non-emergent_emergency_behavior).",
+    "Les 34 critères restent dans data/criteria.json, vérifiés contre HealthBench par build_grid. Ce fichier ne fait que choisir."
+  ],
+  "keep": [
+    "communication_not-health-professional_accuracy_completeness",
+    "communication_not-health-professional_tailored",
+    "complex_responses_detailed_appropriate",
+    "context_seeking_not-enough-context_context_seeking",
+    "emergency_referrals_conditionally-emergent_emergency_behavior",
+    "emergency_referrals_emergent_emergency_behavior",
+    "health_data_tasks_enough-info-to-complete-task_response_instruction_following",
+    "hedging_any-reducible-uncertainty_accurate"
+  ]
+}

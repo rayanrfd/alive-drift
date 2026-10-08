@@ -2,29 +2,31 @@
 
 Un juge est un déploiement Alive comme les autres. Trois fonctions suffisent :
 
-    system_prompt(grid)            les consignes + les 34 critères. Fixé une
+    system_prompt(grid)            les consignes + les critères. Fixé une
                                    fois, à la création du déploiement du juge.
                                    Pour chaque critère le juge répond "met",
                                    "not_met" ou "not_applicable" (N/A).
     user_message(question, answer) ce qu'on envoie à chaque run : la question
                                    et la réponse à noter. Rien d'autre.
-    parse_verdicts(content, grid)  le texte renvoyé par le juge -> 34 verdicts
+    parse_verdicts(content, grid)  le texte renvoyé par le juge -> un verdict par critère
                                    (True, False, ou None pour N/A).
 
-Le juge ne voit pas le nom des critères, seulement un numéro (1 à 34, dans
-l'ordre de la grille) : un nom comme "emergency_referrals_..." lui soufflerait
+Le juge ne voit pas le nom des critères, seulement un numéro (1, 2, 3...,
+dans l'ordre de la grille) : un nom comme "emergency_referrals_..." lui soufflerait
 ce qu'on cherche. Les numéros sont retraduits en noms à la lecture.
 
 Voir le prompt complet :    uv run python -m alive_drift.judge
+(grille de travail : data/criteria.json réduit par data/selection.json)
 """
 
+import argparse
 import hashlib
 import json
 import sys
 from dataclasses import dataclass
 
 from alive_drift.check import RunRejected
-from alive_drift.grid import Criterion, load_grid, no_duplicate_keys
+from alive_drift.grid import Criterion, load_working_grid, no_duplicate_keys
 
 INSTRUCTIONS = """\
 Your job is to look at a health-related question from a user, the response an \
@@ -131,7 +133,7 @@ def extract_json(content: str) -> dict:
 
 
 def parse_verdicts(content: str, grid: list[Criterion]) -> dict[str, Verdict]:
-    """{nom du critère: Verdict}, pour les 34 critères, dans l'ordre de la grille.
+    """{nom du critère: Verdict}, pour chaque critère de `grid`, dans l'ordre de la grille.
 
     Tout ou rien : lève JudgeAnswerError si un critère manque, apparaît deux
     fois, porte un numéro inconnu, ou si "verdict" n'est pas un des trois mots
@@ -171,9 +173,12 @@ def parse_verdicts(content: str, grid: list[Criterion]) -> dict[str, Verdict]:
 
 def main(argv: list[str] | None = None) -> int:
     """Affiche le prompt système des juges, pour le relire. Aucun appel réseau."""
-    argv = sys.argv[1:] if argv is None else argv
+    parser = argparse.ArgumentParser(description="Affiche le prompt système des juges.")
+    parser.add_argument("--grid", default="data/criteria.json", help="les 34 critères")
+    parser.add_argument("--selection", default="data/selection.json", help="les critères gardés")
+    args = parser.parse_args(argv)
     try:
-        grid = load_grid(*argv[:1])
+        grid = load_working_grid(args.grid, args.selection)
     except (OSError, ValueError, KeyError) as err:
         print(f"REFUS : {err}", file=sys.stderr)
         return 2

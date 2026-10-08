@@ -41,28 +41,31 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
 - `src/alive_drift/summary.py` : résume un fichier de réponses et son journal
   d'erreurs (questions manquantes, providers, longueurs, coût, échecs par message).
   Ne lance aucun run : `uv run python -m alive_drift.summary outputs/A.jsonl`.
-- `data/criteria.json` + `src/alive_drift/grid.py` : la grille de notation, les 34
-  critères HealthBench Consensus (7 thèmes), appliquée telle quelle à toutes les
-  réponses. `load_grid()` refuse une grille abîmée ; `grid_fingerprint()` donne
-  l'empreinte à enregistrer avec chaque note.
-- `src/alive_drift/build_grid.py` : reconstruit la grille depuis le jeu HealthBench
-  (Hugging Face, public) et la compare à `data/criteria.json`. Aucun appel à Alive :
+- `data/criteria.json` + `src/alive_drift/grid.py` : les 34 critères HealthBench Consensus
+  (7 thèmes), tels que HealthBench les donne. `load_grid()` refuse une grille abîmée ;
+  `grid_fingerprint()` donne l'empreinte à enregistrer avec chaque note.
+- `data/selection.json` : les critères envoyés aux juges (décision du 08/10 : 8 critères,
+  sans doublon, un seul par paire contradictoire ; les raisons sont dans le fichier).
+  `load_working_grid()` rend cette grille de travail. Pour changer de critères, on change
+  la liste `keep`, puis on recrée les juges.
+- `src/alive_drift/build_grid.py` : reconstruit les 34 critères depuis le jeu HealthBench
+  (Hugging Face, public) et les compare à `data/criteria.json`. Aucun appel à Alive :
   `uv run python -m alive_drift.build_grid`.
 - `src/alive_drift/judge.py` : ce qu'on envoie à un juge et comment on lit sa réponse.
-  `system_prompt(grid)` (consignes + 34 critères numérotés, fixé à la création du
+  `system_prompt(grid)` (consignes + critères numérotés, fixé à la création du
   déploiement du juge), `user_message(question, réponse)` (le message de chaque run),
-  `parse_verdicts(contenu, grid)` (34 verdicts par nom de critère, tout ou rien).
+  `parse_verdicts(contenu, grid)` (un verdict par critère, rangé par nom, tout ou rien).
   Trois verdicts : `met`, `not_met`, `not_applicable` (N/A, décidé d'après la question
-  seule). Dans les fichiers de votes : `true`, `false`, `null`. Les six juges créés avant
-  le N/A sont rangés dans `archive/juges_avant_na.json` (voir `archive/README.md`).
+  seule). Dans les fichiers de votes : `true`, `false`, `null`.
   Relire le prompt : `uv run python -m alive_drift.judge`.
 - `src/alive_drift/jury.py` : fait noter les réponses d'UNE config par UN juge. Même
   mécanique que `generate` (parallèle, réessais, arrêt après 5 échecs, reprise). Une ligne
-  par réponse dans `outputs/jury/<config>.<juge>.jsonl`, avec les 34 oui/non rangés par nom
-  de critère. Une réponse de juge incomplète n'est jamais gardée : elle va au journal
-  d'erreurs. Refuse de démarrer si le juge n'a pas le prompt de la grille actuelle.
-  Les juges (`juge_deepseek`, `juge_qwen`) sont dans `configs.json`.
-  `uv run python -m alive_drift.jury --judge juge_qwen --responses outputs/A.jsonl --limit 3`.
+  par réponse dans `outputs/jury/<config>.<juge>.jsonl`, avec un vote par critère rangé
+  par nom. Une réponse de juge incomplète n'est jamais gardée : elle va au journal
+  d'erreurs. Refuse de démarrer si le juge n'a pas le prompt de la grille de travail.
+  `uv run python -m alive_drift.jury --judge juge_glm --responses outputs/A.jsonl --limit 3`.
+- `archive/` : les juges qui ne servent plus (anciennes consignes, ancienne grille), gardés
+  comme trace ; voir `archive/README.md`.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
 

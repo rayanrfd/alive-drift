@@ -2,7 +2,7 @@
 
 Pour chaque réponse : un run Alive sur le déploiement du juge (le message est
 la question et la réponse, voir judge.py), puis une ligne écrite tout de suite
-dans le fichier de sortie, avec les 34 verdicts du juge (true, false, ou null
+dans le fichier de sortie, avec un verdict par critère (true, false, ou null
 pour "non applicable").
 
 C'est generate.py avec une autre entrée et une autre ligne de sortie : même
@@ -17,7 +17,8 @@ Un fichier par (config notée, juge) :
 Le jury complet = 3 configs x 3 juges = 9 commandes.
 
 Avant le premier run, on vérifie sans rien dépenser que le juge porte bien le
-prompt fabriqué depuis la grille d'aujourd'hui (empreinte dans configs.json).
+prompt fabriqué depuis la grille de travail d'aujourd'hui (data/criteria.json
+réduit par data/selection.json ; empreinte dans configs.json).
 
 Exemple sur 3 réponses (3 runs payants) :
 
@@ -36,7 +37,7 @@ from alive_drift.check import RunRejected
 from alive_drift.client import TOKEN_HELP, find_token, make_client, run_with_retries
 from alive_drift.config import Config, load_config
 from alive_drift.files import load_questions, now_utc
-from alive_drift.grid import Criterion, grid_fingerprint, load_grid
+from alive_drift.grid import Criterion, grid_fingerprint, load_working_grid
 from alive_drift.judge import (
     JudgeAnswerError, parse_verdicts, prompt_fingerprint, system_prompt, user_message,
 )
@@ -289,7 +290,8 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
                         help="défaut : <dossier des réponses>/jury/<réponses>.<juge>.jsonl")
     parser.add_argument("--configs", default="configs.json", help="fichier des configs")
     parser.add_argument("--questions", default="data/healthbench.jsonl", help="JSONL {id, text}")
-    parser.add_argument("--grid", default="data/criteria.json", help="la grille des critères")
+    parser.add_argument("--grid", default="data/criteria.json", help="les 34 critères")
+    parser.add_argument("--selection", default="data/selection.json", help="les critères envoyés au juge")
     parser.add_argument("--limit", type=int, default=None, help="ne noter que les N premières réponses")
     parser.add_argument("--workers", type=int, default=1, help="runs envoyés en même temps (1 à 32, défaut 1)")
     args = parser.parse_args(argv)
@@ -303,7 +305,7 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     with make_client(token, transport) as client:
         try:
             judge = load_config(args.configs, args.judge)
-            grid = load_grid(args.grid)
+            grid = load_working_grid(args.grid, args.selection)
             responses = load_responses(args.responses, load_questions(args.questions))
             n_ok, n_failed = judge_responses(client, responses, judge, grid, out_path=out_path,
                                              limit=args.limit, workers=args.workers, sleep=sleep)

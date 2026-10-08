@@ -5,12 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from alive_drift.grid import Criterion, load_grid
+from alive_drift.grid import Criterion, load_grid, load_working_grid
 from alive_drift.judge import (
     JudgeAnswerError, Verdict, extract_json, main, parse_verdicts, system_prompt, user_message,
 )
 
 REPO_GRID = Path(__file__).parent.parent / "data" / "criteria.json"
+REPO_SELECTION = Path(__file__).parent.parent / "data" / "selection.json"
 
 # Une petite grille de 3 critères, pour des tests lisibles.
 SMALL = [Criterion("communication_a", "communication", "Texte du critère A.", 5.0),
@@ -218,11 +219,22 @@ def test_33_verdicts_sur_34_refuse():
 
 # --- La commande qui affiche le prompt -----------------------------------------------------
 
-def test_main_affiche_le_prompt(capsys):
-    assert main([str(REPO_GRID)]) == 0
-    assert capsys.readouterr().out == system_prompt(load_grid(REPO_GRID)) + "\n"
+def test_prompt_de_la_grille_de_travail():
+    prompt = system_prompt(load_working_grid(REPO_GRID, REPO_SELECTION))
+    assert "from criterion_id 1 to criterion_id 8" in prompt
+    assert prompt.count("<rubric_item criterion_id=") == 8
+    assert '<rubric_item criterion_id="9">' not in prompt
 
 
-def test_main_grille_introuvable_code_2(tmp_path, capsys):
-    assert main([str(tmp_path / "absente.json")]) == 2
+def test_main_affiche_le_prompt_de_la_grille_de_travail(capsys):
+    assert main(["--grid", str(REPO_GRID), "--selection", str(REPO_SELECTION)]) == 0
+    expected = system_prompt(load_working_grid(REPO_GRID, REPO_SELECTION))
+    assert capsys.readouterr().out == expected + "\n"
+
+
+@pytest.mark.parametrize("missing", ["--grid", "--selection"])
+def test_main_fichier_introuvable_code_2(tmp_path, capsys, missing):
+    args = {"--grid": str(REPO_GRID), "--selection": str(REPO_SELECTION)}
+    args[missing] = str(tmp_path / "absent.json")
+    assert main([x for pair in args.items() for x in pair]) == 2
     assert "REFUS" in capsys.readouterr().err

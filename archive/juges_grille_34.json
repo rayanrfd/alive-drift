@@ -1,0 +1,79 @@
+{
+  "juge_deepseek": {
+    "room": "th-drscAaUv8XgaLNAx",
+    "deployment": "dp-d6jCBSTWWGzF63Za",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "reasoning_effort": "none",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_qwen": {
+    "room": "th-ZWj6KwbAowsdaTMr",
+    "deployment": "dp-AXFeIrJ6kEJ4C4Vl",
+    "model": "qwen/qwen3.8-flash",
+    "reasoning_effort": "none",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_gemini": {
+    "room": "th-0rt22OuJvwfpAiBH",
+    "deployment": "dp-IZ0KvGNHBumBxq7s",
+    "model": "google/gemini-3.8-flash",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_sonnet": {
+    "room": "th-nq5hBuBKDCevLJ69",
+    "deployment": "dp-dS7phqeCjn0vesFb",
+    "model": "anthropic/claude-sonnet-5.5",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_haiku": {
+    "room": "th-F37nAKZCy8ArUbTN",
+    "deployment": "dp-mPYFYzCLFgoWyHDx",
+    "model": "anthropic/claude-haiku-4.5",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_kimi": {
+    "room": "th-GfOTZI76QEONE8Vp",
+    "deployment": "dp-Pk2RX4h3AP05RoCL",
+    "model": "moonshotai/kimi-k2.5",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_glm": {
+    "room": "th-t6Ho3ieS5av9iUo4",
+    "deployment": "dp-vVlP5O5aDeAve0It",
+    "model": "z-ai/glm-5.3-flash",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_minimax": {
+    "room": "th-15wUeoKdy8Yvalhp",
+    "deployment": "dp-6EoxrfDWKaPSZlf6",
+    "model": "minimax/minimax-m3",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_grok": {
+    "room": "th-sEQ6oAXgIZc2PNHD",
+    "deployment": "dp-ggOJUGtEbcICu48H",
+    "model": "x-ai/grok-4.3",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_qwen_plus": {
+    "room": "th-HavRtGIs1wkkMw3m",
+    "deployment": "dp-KzD1JnfppkZHWvtE",
+    "model": "qwen/qwen3.7-plus",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_deepseek_pro": {
+    "room": "th-7gKoZ0sl7xlsKgwt",
+    "deployment": "dp-BjHYjlGU9ZAktWcg",
+    "model": "deepseek/deepseek-v4-pro",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  }
+}

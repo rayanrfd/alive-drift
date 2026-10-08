@@ -1,4 +1,9 @@
-"""La grille de notation : les 34 critères HealthBench Consensus.
+"""La grille de notation : les 34 critères HealthBench Consensus, et la sélection.
+
+data/criteria.json garde les 34 critères tels que HealthBench les donne
+(vérifiés par build_grid.py). data/selection.json choisit ceux qu'on envoie
+aux juges (décision du 08/10 : 8 critères, sans doublon ni paire
+contradictoire). load_working_grid() rend cette grille de travail.
 
 La même grille sert pour TOUTES les réponses (décision du 29/09) : un critère
 qui ne s'applique pas à la question est noté oui ou non comme les autres, et
@@ -76,6 +81,44 @@ def load_grid(path="data/criteria.json") -> list[Criterion]:
     if len(grid) != N_CRITERIA:
         raise ValueError(f"{path} : {len(grid)} critères au lieu de {N_CRITERIA}")
     return sorted(grid, key=lambda c: c.name)
+
+
+def load_selection(path="data/selection.json") -> list[str]:
+    """Les noms des critères gardés : la liste "keep" du fichier de sélection.
+
+    Lève ValueError si "keep" manque, est vide, n'est pas une liste de noms,
+    ou contient un nom en double.
+    """
+    with open(path, encoding="utf-8") as f:
+        doc = json.load(f, object_pairs_hook=no_duplicate_keys)
+    if not isinstance(doc, dict):
+        raise ValueError(f"{path} : doit être un objet avec une liste 'keep'")
+    keep = doc.get("keep")
+    if not isinstance(keep, list) or not keep or not all(isinstance(n, str) and n for n in keep):
+        raise ValueError(f"{path} : 'keep' doit être une liste non vide de noms de critères")
+    if len(set(keep)) != len(keep):
+        raise ValueError(f"{path} : critère en double dans 'keep'")
+    return keep
+
+
+def select_criteria(grid: list[Criterion], names: list[str]) -> list[Criterion]:
+    """Les critères de `grid` dont le nom est dans `names`, dans l'ordre de la grille.
+
+    Lève ValueError si un nom n'existe pas dans la grille : une faute de frappe
+    retirerait un critère sans bruit.
+    """
+    unknown = sorted(set(names) - {c.name for c in grid})
+    if unknown:
+        raise ValueError(f"critères inconnus dans la sélection : {unknown}")
+    if not names:
+        raise ValueError("sélection vide")
+    return [c for c in grid if c.name in set(names)]
+
+
+def load_working_grid(criteria_path="data/criteria.json",
+                      selection_path="data/selection.json") -> list[Criterion]:
+    """La grille envoyée aux juges : les 34 critères vérifiés, réduits à la sélection."""
+    return select_criteria(load_grid(criteria_path), load_selection(selection_path))
 
 
 def grid_fingerprint(grid: list[Criterion]) -> str:

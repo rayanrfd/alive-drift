@@ -367,11 +367,18 @@ def test_chemin_de_sortie_par_defaut():
 
 # --- Ligne de commande ----------------------------------------------------------------------
 
-def setup_files(tmp_path, n=4):
-    """Écrit configs, questions, grille (3 critères ne suffisent pas à load_grid : on
-    prend la vraie) et réponses. Renvoie les arguments communs de la commande."""
-    from alive_drift.grid import load_grid
-    grid = load_grid(REPO / "data" / "criteria.json")
+def setup_files(tmp_path, n=4, selection=None):
+    """Écrit configs, questions, sélection et réponses. Renvoie les arguments communs.
+
+    La grille est la vraie (3 critères ne suffisent pas à load_grid). Sélection par
+    défaut : les 34 critères ; `selection` = un autre fichier de sélection.
+    """
+    from alive_drift.grid import load_grid, load_working_grid
+    criteria = REPO / "data" / "criteria.json"
+    if selection is None:
+        selection = tmp_path / "selection.json"
+        selection.write_text(json.dumps({"keep": [c.name for c in load_grid(criteria)]}), encoding="utf-8")
+    grid = load_working_grid(criteria, selection)
     judge = {"room": "th-JUGE", "deployment": "dp-JUGE", "model": MODEL, "reasoning_effort": "none",
              "judge_prompt": prompt_fingerprint(system_prompt(grid))}
     generator = {"room": "th-A", "deployment": "dp-A", "model": MODEL, "reasoning_effort": "none"}
@@ -379,18 +386,19 @@ def setup_files(tmp_path, n=4):
     write_lines(tmp_path / "questions.jsonl", [{"id": i, "text": f"question {i}"} for i in range(n)])
     write_lines(tmp_path / "A.jsonl", [generation_line(i) for i in reversed(range(n))])
     return ["--responses", str(tmp_path / "A.jsonl"), "--configs", str(tmp_path / "configs.json"),
-            "--questions", str(tmp_path / "questions.jsonl"), "--grid", str(REPO / "data" / "criteria.json")]
+            "--questions", str(tmp_path / "questions.jsonl"), "--grid", str(criteria),
+            "--selection", str(selection)]
 
 
-def full_grid_transport():
-    """Un juge qui rend 34 verdicts (critères pairs : met, les autres : not_applicable)."""
+def full_grid_transport(n_criteria=34):
+    """Un juge qui rend n verdicts (critères pairs : met, les autres : not_applicable)."""
     requests = []
 
     def handler(request):
         requests.append(json.loads(request.content)["input"])
         content = json.dumps({"results": [
             {"criterion_id": n, "explanation": "raison", "verdict": "met" if n % 2 == 0 else "not_applicable"}
-            for n in range(1, 35)]})
+            for n in range(1, n_criteria + 1)]})
         return httpx.Response(200, json=judge_run(content))
     return httpx.MockTransport(handler), requests
 
@@ -456,3 +464,31 @@ def test_les_juges_d_avant_non_applicable_sont_refuses():
     for name in ("juge_deepseek", "juge_gemini", "juge_qwen", "juge_minimax", "juge_glm", "juge_kimi"):
         with pytest.raises(ValueError, match="créé avec le prompt 283c79ab9f9a"):
             check_judge(load_config(REPO / "archive" / "juges_avant_na.json", name), grid)
+
+
+def test_main_avec_la_selection_du_depot(tmp_path, monkeypatch):
+    # La grille de travail du 08/10 : 8 critères envoyés au juge, 8 votes écrits.
+    from test_grid import KEPT
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    args = setup_files(tmp_path, selection=REPO / "data" / "selection.json")
+    transport, requests = full_grid_transport(n_criteria=8)
+
+    assert main(["--judge", "juge_test", "--limit", "1", *args], transport) == 0
+    [vote] = read_jsonl(tmp_path / "jury" / "A.juge_test.jsonl")
+    assert list(vote["verdicts"]) == KEPT
+    assert list(vote["verdicts"].values()) == [None, True] * 4
+
+
+def test_les_juges_de_la_grille_34_sont_refuses():
+    # Les onze juges créés les 07 et 08/10 avec les 34 critères et la consigne N/A,
+    # rangés dans archive/ le 08/10. La grille de travail change le prompt : jury
+    # refuse de les lancer, il faut les recréer avec deploy --judge.
+    from alive_drift.config import load_config, read_configs
+    from alive_drift.grid import load_working_grid
+    archive = REPO / "archive" / "juges_grille_34.json"
+    grid = load_working_grid(REPO / "data" / "criteria.json", REPO / "data" / "selection.json")
+    names = list(read_configs(archive))
+    assert len(names) == 11
+    for name in names:
+        with pytest.raises(ValueError, match="créé avec le prompt 402721efd0f3"):
+            check_judge(load_config(archive, name), grid)
