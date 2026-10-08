@@ -117,6 +117,34 @@ def errors_path_for(out_path: Path) -> Path:
 
 # --- Reprise -------------------------------------------------------------------
 
+def read_records(path: Path) -> list[tuple[str, dict]]:
+    """Les lignes d'un fichier JSONL qu'on complète, avec leur position.
+
+    Renvoie [("<chemin> ligne <n>", ligne décodée), ...], ou [] si le fichier
+    n'existe pas encore. Sert à la reprise (generate et jury).
+    Lève ValueError si la dernière ligne a été coupée ou si une ligne n'est pas
+    un objet JSON : on ne répare jamais un fichier tout seul.
+    """
+    if not path.exists():
+        return []
+    content = path.read_text(encoding="utf-8")
+    # Chaque ligne est écrite avec son retour à la ligne. S'il manque à la fin,
+    # la dernière écriture a été coupée : la prochaine ligne s'y collerait.
+    if content and not content.endswith("\n"):
+        raise ValueError(f"{path} : dernière ligne incomplète (écriture interrompue ?)")
+    records = []
+    for n, line in enumerate(content.splitlines(), start=1):
+        where = f"{path} ligne {n}"
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            record = None
+        if not isinstance(record, dict):
+            raise ValueError(f"{where} : ligne illisible")
+        records.append((where, record))
+    return records
+
+
 def load_done(out_path: Path, questions: list[dict], config: Config) -> tuple[set[str], set[str]]:
     """Ce qui est déjà dans out_path : (ids des questions faites, execution_id utilisés).
 
@@ -128,25 +156,10 @@ def load_done(out_path: Path, questions: list[dict], config: Config) -> tuple[se
     de raisonnement ou deux jeux de questions, et on ne répare pas le fichier
     tout seul.
     """
-    if not out_path.exists():
-        return set(), set()
-    content = out_path.read_text(encoding="utf-8")
-    # Chaque ligne est écrite avec son retour à la ligne. S'il manque à la fin,
-    # la dernière écriture a été coupée : la prochaine ligne s'y collerait.
-    if content and not content.endswith("\n"):
-        raise ValueError(f"{out_path} : dernière ligne incomplète (écriture interrompue ?)")
-
     text_by_id = {q["id"]: q["text"] for q in questions}
     done = set()
     executions = set()
-    for n, line in enumerate(content.splitlines(), start=1):
-        where = f"{out_path} ligne {n}"
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            record = None
-        if not isinstance(record, dict):
-            raise ValueError(f"{where} : ligne illisible")
+    for where, record in read_records(out_path):
         qid = record.get("question_id")
         # Chaque ligne doit venir de la même config, champ par champ.
         for label, key, expected in (

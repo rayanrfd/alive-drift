@@ -63,6 +63,8 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   par réponse dans `outputs/jury/<config>.<juge>.jsonl`, avec un vote par critère rangé
   par nom. Une réponse de juge incomplète n'est jamais gardée : elle va au journal
   d'erreurs. Refuse de démarrer si le juge n'a pas le prompt de la grille de travail.
+  Comme `generate`, il s'appuie sur un fichier qui lit et écrit les lignes :
+  `votes.py` (réponses à noter, ligne de vote, reprise).
   `uv run python -m alive_drift.jury --judge juge_glm --responses outputs/A.jsonl --limit 3`.
 - `archive/` : les juges qui ne servent plus (anciennes consignes, ancienne grille), gardés
   comme trace ; voir `archive/README.md`.
