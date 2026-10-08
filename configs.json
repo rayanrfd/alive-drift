@@ -47,5 +47,68 @@
     "model": "z-ai/glm-5.3-flash",
     "reasoning_effort": "low",
     "judge_prompt": "dd478ccfe671"
+  },
+  "juge_deepseek": {
+    "room": "th-TcSDHQhLz5S7VScw",
+    "deployment": "dp-V918aWjOUFncLFjS",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "reasoning_effort": "none",
+    "judge_prompt": "dd478ccfe671"
+  },
+  "juge_qwen": {
+    "room": "th-bfkg27w1kWiEs1lF",
+    "deployment": "dp-LjAPeL3T85VPa8Kh",
+    "model": "qwen/qwen3.8-flash",
+    "reasoning_effort": "none",
+    "judge_prompt": "dd478ccfe671"
+  },
+  "juge_gemini_lite": {
+    "room": "th-Bj4q2RX2yWAap5hQ",
+    "deployment": "dp-xMoSxlepoH4iMd46",
+    "model": "google/gemini-3.1-flash-lite",
+    "reasoning_effort": "none",
+    "judge_prompt": "dd478ccfe671"
+  },
+  "juge_haiku": {
+    "room": "th-e3euRSNJ44TiFXHg",
+    "deployment": "dp-4Ag7DSyK42mAAWmI",
+    "model": "anthropic/claude-haiku-4.5",
+    "reasoning_effort": "low",
+    "judge_prompt": "dd478ccfe671"
+  },
+  "juge_grok": {
+    "room": "th-ASg1TzQYqX3rr8vk",
+    "deployment": "dp-pcWsm1p99PhBLfYt",
+    "model": "x-ai/grok-4.3",
+    "reasoning_effort": "low",
+    "judge_prompt": "dd478ccfe671"
+  },
+  "juge_qwen_plus": {
+    "room": "th-PstfQn4UatGSnNGy",
+    "deployment": "dp-qUTrIa31G0LYxINk",
+    "model": "qwen/qwen3.7-plus",
+    "reasoning_effort": "low",
+    "judge_prompt": "dd478ccfe671"
+  },
+  "juge_deepseek_pro": {
+    "room": "th-iww7ZQOawdwSJOSp",
+    "deployment": "dp-nZDeIHz4YyBRRwAd",
+    "model": "deepseek/deepseek-v4-pro",
+    "reasoning_effort": "low",
+    "judge_prompt": "dd478ccfe671"
+  },
+  "juge_minimax": {
+    "room": "th-4j48ZMaDIM07OCz7",
+    "deployment": "dp-Fk9vmga5KOaEcIhL",
+    "model": "minimax/minimax-m3",
+    "reasoning_effort": "low",
+    "judge_prompt": "dd478ccfe671"
+  },
+  "juge_kimi": {
+    "room": "th-KvQmVDL5BzNHUidp",
+    "deployment": "dp-jjXir4Kk6U0CFsF9",
+    "model": "moonshotai/kimi-k2.5",
+    "reasoning_effort": "low",
+    "judge_prompt": "dd478ccfe671"
   }
 }
