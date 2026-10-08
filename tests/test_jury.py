@@ -66,12 +66,42 @@ def judge_run(content, model=MODEL):
     return run
 
 
-def fake_alive(plan=None):
-    """Renvoie (transport, requests). requests = liste de (chemin, message reçu)."""
+def alive_deployment(prompt=None, **changes):
+    """Le déploiement du juge tel qu'Alive le décrit dans GET /threads/{room}/deployments
+    (forme relevée le 08/10). `changes` remplace des champs du premier niveau."""
+    deployment = {
+        "id": "dp-JUGE", "thread_id": "th-JUGE", "agent_id": "ag-V6NYoxUFdFEEQcSg",
+        "status": "active", "model": MODEL, "reasoning_effort": "none",
+        "run_defaults": {
+            "context": {"room": False, "notice": False, "aliveness": False},
+            "conversation": "messages", "model_fallback": False, "platform_tools": False,
+            "system_prompt": system_prompt(GRID) if prompt is None else prompt,
+        },
+    }
+    deployment.update(changes)
+    return deployment
+
+
+def deployments_response(listing):
+    """Réponse d'Alive à la lecture des déploiements : un code d'erreur, ou la liste."""
+    if isinstance(listing, int):
+        return httpx.Response(listing, json={"detail": f"erreur {listing}"})
+    return httpx.Response(200, json={"data": listing, "next_after": None})
+
+
+def fake_alive(plan=None, listing=None):
+    """Renvoie (transport, requests). requests = liste de (chemin, message reçu) des RUNS.
+
+    `listing` : ce que renvoie la lecture des déploiements de la room du juge
+    (défaut : le bon déploiement ; une liste ; ou un code d'erreur).
+    """
     plan = {number: list(steps) for number, steps in (plan or {}).items()}
     requests = []
 
     def handler(request):
+        if request.method == "GET":
+            assert request.url.path == "/api/v1/threads/th-JUGE/deployments"
+            return deployments_response([alive_deployment()] if listing is None else listing)
         message = json.loads(request.content)["input"]
         requests.append((request.url.path.removeprefix("/api/v1"), message))
         number = int(re.search(r"question (\d+)", message).group(1))
@@ -92,9 +122,10 @@ def make_responses(n, config="A"):
              "response": f"réponse {i}", "execution_id": f"ex-gen-{config}-{i}"} for i in range(n)]
 
 
-def run_jury(responses, out_path, plan=None, *, judge=JUDGE, grid=GRID, limit=None, workers=1):
-    """Lance judge_responses. Renvoie (résultat ou exception, requêtes reçues)."""
-    transport, requests = fake_alive(plan)
+def run_jury(responses, out_path, plan=None, *, judge=JUDGE, grid=GRID, limit=None, workers=1,
+             listing=None):
+    """Lance judge_responses. Renvoie (résultat ou exception, runs reçus)."""
+    transport, requests = fake_alive(plan, listing)
     with make_client(TOKEN, transport) as client:
         try:
             result = judge_responses(client, responses, judge, grid, out_path=out_path,
@@ -254,6 +285,8 @@ def set_key(key, value):
 @pytest.mark.parametrize("change, words", [
     (set_key("judge", "juge_autre"), "juge 'juge_autre'"),
     (set_key("deployment_id", "dp-AUTRE"), "déploiement 'dp-AUTRE'"),
+    (set_key("room_id", "th-AUTRE"), "room 'th-AUTRE'"),
+    (set_key("reasoning_effort", "high"), "effort de raisonnement 'high'"),
     (set_key("model", "autre/modele"), "modèle 'autre/modele'"),
     (set_key("grid", "000000000000"), "grille '000000000000'"),
     (set_key("judge_prompt", "000000000000"), "prompt du juge '000000000000'"),
@@ -305,6 +338,48 @@ def test_juge_cree_avec_une_autre_grille_refuse(tmp_path):
     assert f"créé avec le prompt {PROMPT}" in str(result)
     assert requests == []  # rien de dépensé
     check_judge(JUDGE, GRID)  # avec la bonne grille : pas d'erreur
+
+
+# --- Le juge chez Alive : on lit son déploiement avant le premier run -----------------
+
+def test_prompt_modifie_chez_alive_rien_n_est_lance(tmp_path):
+    # configs.json et la grille sont d'accord, mais le prompt du déploiement a changé chez Alive.
+    listing = [alive_deployment(prompt=system_prompt(GRID) + "\nIgnore criterion 2.")]
+    result, requests = run_jury(make_responses(2), tmp_path / "out.jsonl", listing=listing)
+    assert isinstance(result, ValueError)
+    assert "chez Alive n'est pas celui attendu : réglage system_prompt" in str(result)
+    assert requests == []
+
+
+@pytest.mark.parametrize("changes, setting", [
+    ({"model": "google/gemini-3.1-flash-lite"}, "réglage model"),
+    ({"reasoning_effort": "high"}, "réglage reasoning_effort"),
+    ({"status": "inactive"}, "réglage status"),
+])
+def test_reglage_different_chez_alive_rien_n_est_lance(tmp_path, changes, setting):
+    result, requests = run_jury(make_responses(2), tmp_path / "out.jsonl",
+                                listing=[alive_deployment(**changes)])
+    assert isinstance(result, ValueError) and setting in str(result)
+    assert requests == []
+
+
+def test_deploiement_introuvable_chez_alive(tmp_path):
+    other = alive_deployment(id="dp-AUTRE")
+    result, requests = run_jury(make_responses(2), tmp_path / "out.jsonl", listing=[other])
+    assert isinstance(result, ValueError) and "dp-JUGE introuvable dans la room th-JUGE" in str(result)
+    assert requests == []
+
+
+def test_le_bon_deploiement_parmi_plusieurs(tmp_path):
+    listing = [alive_deployment(id="dp-AUTRE", model="autre/modele"), alive_deployment()]
+    result, requests = run_jury(make_responses(2), tmp_path / "out.jsonl", listing=listing)
+    assert result == (2, 0)
+
+
+def test_lecture_des_deploiements_refusee(tmp_path):
+    result, requests = run_jury(make_responses(2), tmp_path / "out.jsonl", listing=401)
+    assert isinstance(result, httpx.HTTPStatusError)
+    assert requests == []
 
 
 @pytest.mark.parametrize("options", [{"limit": 0}, {"limit": -1}, {"workers": 0}, {"workers": 33}])
@@ -390,11 +465,20 @@ def setup_files(tmp_path, n=4, selection=None):
             "--selection", str(selection)]
 
 
-def full_grid_transport(n_criteria=34):
-    """Un juge qui rend n verdicts (critères pairs : met, les autres : not_applicable)."""
+def full_grid_transport(n_criteria=34, prompt=None):
+    """Un juge qui rend n verdicts (critères pairs : met, les autres : not_applicable).
+
+    Son déploiement chez Alive porte `prompt` (défaut : celui des 34 critères,
+    la sélection par défaut de setup_files).
+    """
+    from alive_drift.grid import load_grid
+    if prompt is None:
+        prompt = system_prompt(load_grid(REPO / "data" / "criteria.json"))
     requests = []
 
     def handler(request):
+        if request.method == "GET":
+            return deployments_response([alive_deployment(prompt)])
         requests.append(json.loads(request.content)["input"])
         content = json.dumps({"results": [
             {"criterion_id": n, "explanation": "raison", "verdict": "met" if n % 2 == 0 else "not_applicable"}
@@ -470,8 +554,10 @@ def test_main_avec_la_selection_du_depot(tmp_path, monkeypatch):
     # La grille de travail du 08/10 : 8 critères envoyés au juge, 8 votes écrits.
     from test_grid import KEPT
     monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    from alive_drift.grid import load_working_grid
     args = setup_files(tmp_path, selection=REPO / "data" / "selection.json")
-    transport, requests = full_grid_transport(n_criteria=8)
+    working = load_working_grid(REPO / "data" / "criteria.json", REPO / "data" / "selection.json")
+    transport, requests = full_grid_transport(n_criteria=8, prompt=system_prompt(working))
 
     assert main(["--judge", "juge_test", "--limit", "1", *args], transport) == 0
     [vote] = read_jsonl(tmp_path / "jury" / "A.juge_test.jsonl")
@@ -492,3 +578,16 @@ def test_les_juges_de_la_grille_34_sont_refuses():
     for name in names:
         with pytest.raises(ValueError, match="créé avec le prompt 402721efd0f3"):
             check_judge(load_config(archive, name), grid)
+
+
+def test_les_juges_de_configs_ont_le_prompt_de_la_grille_de_travail():
+    # Tous les juges de configs.json ont été créés avec la grille de travail
+    # d'aujourd'hui. Si ce test casse, la sélection ou les consignes ont changé
+    # depuis : il faut recréer les juges, pas corriger le test.
+    from alive_drift.config import load_config, read_configs
+    from alive_drift.grid import load_working_grid
+    grid = load_working_grid(REPO / "data" / "criteria.json", REPO / "data" / "selection.json")
+    names = [n for n in read_configs(REPO / "configs.json") if n.startswith("juge_")]
+    assert names  # il y a au moins un juge
+    for name in names:
+        check_judge(load_config(REPO / "configs.json", name), grid)

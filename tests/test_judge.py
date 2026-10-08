@@ -117,6 +117,7 @@ def test_non_applicable_devient_none():
 @pytest.mark.parametrize("word, met", [
     ("met", True), ("not_met", False), ("not_applicable", None),
     ("Met", True), ("NOT_MET", False), (" not-applicable ", None), ("Not Applicable", None),
+    ("n/a", None), ("N/A", None), ("na", None),
 ])
 def test_les_trois_verdicts_casse_et_tirets_toleres(word, met):
     content = answer(raw(1, word), item(2, False), item(3, True))
@@ -148,6 +149,16 @@ def test_numero_du_critere_sous_le_nom_id():
     assert parse_verdicts(content, SMALL) == parse_verdicts(GOOD, SMALL)
 
 
+def test_seulement_id_et_dans_le_desordre():
+    # Juge qui n'écrit que "id" et rend les éléments dans un autre ordre :
+    # chaque verdict reste rangé sous le critère de son numéro.
+    content = json.dumps({"results": [
+        {"id": 3, "explanation": "parce que", "verdict": "met"},
+        {"id": 1, "explanation": "clair", "verdict": "met"},
+        {"id": 2, "explanation": "trop affirmatif", "verdict": "not_met"}]})
+    assert parse_verdicts(content, SMALL) == parse_verdicts(GOOD, SMALL)
+
+
 def test_explication_absente_acceptee():
     content = answer({"criterion_id": 1, "verdict": "met"}, item(2, False), item(3, True))
     assert parse_verdicts(content, SMALL)["communication_a"] == Verdict(True, "")
@@ -162,7 +173,8 @@ def test_explication_absente_acceptee():
     (answer(item(True, True), item(2, False), item(3, True)), "criterion_id inconnu : True"),
     (answer(raw(1, "true"), item(2, False), item(3, True)), "verdict = 'true'"),
     (answer(raw(1, "yes"), item(2, False), item(3, True)), "verdict = 'yes'"),
-    (answer(raw(1, "n/a"), item(2, False), item(3, True)), "verdict = 'n/a'"),
+    (answer(raw(1, "n.a."), item(2, False), item(3, True)), "verdict = 'n.a.'"),
+    (answer(raw(1, "none"), item(2, False), item(3, True)), "verdict = 'none'"),
     (answer(raw(1, True), item(2, False), item(3, True)), "verdict = True"),
     (answer(raw(1, None), item(2, False), item(3, True)), "verdict = None"),
     # l'ancien format (criteria_met) n'est plus accepté : il n'a pas de N/A

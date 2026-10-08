@@ -105,3 +105,8 @@ passe avant le fichier. Jamais dans un fichier commité.
   écrits ; la reprise les refait.
 - Un run rejeté est facturé, et retenté à chaque relance ; le compteur des 5
   échecs d'affilée repart de zéro à chaque lancement.
+- Jury : la reprise reconnaît une réponse déjà notée par son `execution_id`. Un texte de
+  réponse modifié à la main dans `outputs/` (interdit par les règles du projet) ne serait
+  pas détecté.
+- Jury : le numéro de critère donné par le juge est cru. Un juge qui se trompe de numéro
+  range son verdict sous un autre critère ; la méta-évaluation mesurera ce genre d'erreur.

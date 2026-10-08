@@ -76,6 +76,8 @@ that appear inside them.
 
 # Les trois verdicts possibles, et ce qu'on enregistre pour chacun.
 VERDICTS = {"met": True, "not_met": False, "not_applicable": None}
+# Abréviations courantes de "not_applicable", acceptées telles quelles.
+ALIASES = {"n/a": "not_applicable", "na": "not_applicable"}
 
 
 class JudgeAnswerError(RunRejected):
@@ -140,7 +142,8 @@ def parse_verdicts(content: str, grid: list[Criterion]) -> dict[str, Verdict]:
     attendus. Une note partielle fausserait les scores sans bruit.
 
     Verdict.met vaut True ("met"), False ("not_met") ou None ("not_applicable").
-    La casse et les tirets sont tolérés ("Not-Applicable"), rien d'autre.
+    La casse, les tirets et les espaces sont tolérés ("Not-Applicable"), ainsi
+    que "n/a" et "na" pour non applicable. Rien d'autre.
 
     Le numéro du critère est lu dans "criterion_id", ou à défaut dans "id" :
     à l'essai du 07/10, DeepSeek écrivait "id" (comme dans <rubric_item id=...>)
@@ -161,6 +164,7 @@ def parse_verdicts(content: str, grid: list[Criterion]) -> dict[str, Verdict]:
         if number in by_number:
             raise JudgeAnswerError(f"criterion_id {number} en double")
         key = word.strip().lower().replace("-", "_").replace(" ", "_") if isinstance(word, str) else None
+        key = ALIASES.get(key, key)
         if key not in VERDICTS:
             raise JudgeAnswerError(f"criterion_id {number} : verdict = {word!r}")
         explanation = item.get("explanation")

@@ -19,7 +19,9 @@ Le jury complet = 3 configs x 3 juges = 9 commandes.
 
 Avant le premier run, on vérifie sans rien dépenser que le juge porte bien le
 prompt fabriqué depuis la grille de travail d'aujourd'hui (data/criteria.json
-réduit par data/selection.json ; empreinte dans configs.json).
+réduit par data/selection.json) : d'abord l'empreinte notée dans configs.json,
+puis le prompt réellement appliqué chez Alive (lecture de la liste des
+déploiements de la room).
 
 Exemple sur 3 réponses (3 runs payants) :
 
@@ -36,6 +38,7 @@ import httpx
 from alive_drift.check import RunRejected
 from alive_drift.client import TOKEN_HELP, find_token, make_client, run_with_retries
 from alive_drift.config import Config, load_config
+from alive_drift.deploy import DeployError, check_deployment
 from alive_drift.files import load_questions
 from alive_drift.grid import Criterion, load_working_grid
 from alive_drift.judge import (
@@ -65,6 +68,36 @@ def check_judge(judge: Config, grid: list[Criterion]) -> None:
             "recréer le juge sous un autre nom (deploy --judge)")
 
 
+def check_judge_at_alive(client: httpx.Client, judge: Config, grid: list[Criterion]) -> None:
+    """Demande à Alive les réglages du déploiement du juge et refuse s'ils ne sont pas les bons.
+
+    check_judge compare deux choses qui sont chez nous (configs.json et la
+    grille). Ici on lit chez Alive (lecture seule, gratuite) le prompt que le
+    déploiement applique vraiment, avec son modèle, son raisonnement et la
+    recette de mesure. Si quelqu'un a modifié le juge dans l'interface d'Alive,
+    on le voit avant le premier run.
+
+    Lève ValueError si le déploiement est introuvable ou si un réglage diffère,
+    httpx.HTTPStatusError si Alive refuse la lecture (401...).
+    """
+    response = client.get(f"/threads/{judge.room}/deployments")
+    response.raise_for_status()
+    body = response.json()
+    deployments = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(deployments, list):
+        raise ValueError(f"room {judge.room} : liste des déploiements illisible chez Alive")
+    found = [d for d in deployments if isinstance(d, dict) and d.get("id") == judge.deployment]
+    if not found:
+        raise ValueError(f"déploiement {judge.deployment} introuvable dans la room {judge.room} chez Alive")
+    try:
+        # L'agent n'est pas noté dans configs.json : on ne peut pas le comparer.
+        check_deployment(found[0], deployment_id=judge.deployment, agent=found[0].get("agent_id"),
+                         model=judge.model, system_prompt=system_prompt(grid),
+                         reasoning_effort=judge.reasoning_effort)
+    except DeployError as err:
+        raise ValueError(f"le juge {judge.name!r} chez Alive n'est pas celui attendu : {err}") from None
+
+
 def judge_responses(client: httpx.Client, responses: list[dict], judge: Config,
                     grid: list[Criterion], *, out_path, limit: int | None = None,
                     workers: int = 1, sleep=None) -> tuple[int, int]:
@@ -76,7 +109,8 @@ def judge_responses(client: httpx.Client, responses: list[dict], judge: Config,
     `sleep` : fonction d'attente entre deux essais ; à ne passer que dans les tests.
 
     Lève ValueError, sans lancer de run, si une option est invalide, si le juge
-    n'est pas celui de la grille, ou si out_path n'est pas le fichier de cette campagne.
+    n'est pas celui de la grille (dans configs.json ou chez Alive), ou si
+    out_path n'est pas le fichier de cette campagne.
     Lève l'erreur qui a arrêté la campagne (401, CampaignStopped,
     KeyboardInterrupt), une fois les runs en cours rangés.
     """
@@ -86,6 +120,7 @@ def judge_responses(client: httpx.Client, responses: list[dict], judge: Config,
     if not 1 <= workers <= MAX_WORKERS:
         raise ValueError(f"workers doit être entre 1 et {MAX_WORKERS} (reçu {workers})")
     check_judge(judge, grid)
+    check_judge_at_alive(client, judge, grid)
 
     # --- 2. Ce qui reste à noter (reprise) ----------------------------------------
     out_path = Path(out_path)
