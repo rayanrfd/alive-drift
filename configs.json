@@ -61,5 +61,33 @@
     "model": "anthropic/claude-haiku-4.5",
     "reasoning_effort": "low",
     "judge_prompt": "402721efd0f3"
+  },
+  "juge_kimi": {
+    "room": "th-GfOTZI76QEONE8Vp",
+    "deployment": "dp-Pk2RX4h3AP05RoCL",
+    "model": "moonshotai/kimi-k2.5",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_glm": {
+    "room": "th-t6Ho3ieS5av9iUo4",
+    "deployment": "dp-vVlP5O5aDeAve0It",
+    "model": "z-ai/glm-5.3-flash",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_minimax": {
+    "room": "th-15wUeoKdy8Yvalhp",
+    "deployment": "dp-6EoxrfDWKaPSZlf6",
+    "model": "minimax/minimax-m3",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_grok": {
+    "room": "th-sEQ6oAXgIZc2PNHD",
+    "deployment": "dp-ggOJUGtEbcICu48H",
+    "model": "x-ai/grok-4.3",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
   }
 }
