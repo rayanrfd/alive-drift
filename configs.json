@@ -89,5 +89,19 @@
     "model": "x-ai/grok-4.3",
     "reasoning_effort": "low",
     "judge_prompt": "402721efd0f3"
+  },
+  "juge_qwen_plus": {
+    "room": "th-HavRtGIs1wkkMw3m",
+    "deployment": "dp-KzD1JnfppkZHWvtE",
+    "model": "qwen/qwen3.7-plus",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
+  },
+  "juge_deepseek_pro": {
+    "room": "th-7gKoZ0sl7xlsKgwt",
+    "deployment": "dp-BjHYjlGU9ZAktWcg",
+    "model": "deepseek/deepseek-v4-pro",
+    "reasoning_effort": "low",
+    "judge_prompt": "402721efd0f3"
   }
 }
