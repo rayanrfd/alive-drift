@@ -219,3 +219,37 @@ def test_provider_venice_accepte():
     run = run_copy()
     run["model"]["served"][0]["provider"] = "Venice"
     check_run(run, MODEL)
+
+
+# --- Alias d'Alive : on demande "~...-latest", un modèle daté répond ----------------
+
+ALIAS = "~anthropic/claude-haiku-latest"
+REAL = "anthropic/claude-haiku-5.5"
+
+
+def alias_run(served=REAL):
+    """Ce qu'Alive renvoie pour un déploiement sur un alias (forme relevée le 09/10)."""
+    run = copy.deepcopy(REAL_RUN)
+    run["model"]["requested"] = ALIAS
+    run["model"]["served"][0]["model"] = served
+    return run
+
+
+def test_alias_accepte_si_le_modele_servi_est_celui_attendu():
+    check_run(alias_run(), ALIAS, "none", served_model=REAL)  # ne lève rien
+
+
+def test_alias_sans_modele_servi_attendu_rejete():
+    # Le cas du 09/10 : deploy sans --served-model, le run est rejeté.
+    with pytest.raises(RunRejected, match=f"servi par '{REAL}', attendu '{ALIAS}'"):
+        check_run(alias_run(), ALIAS, "none")
+
+
+def test_alias_redirige_vers_un_autre_modele_rejete():
+    with pytest.raises(RunRejected, match="servi par 'anthropic/claude-haiku-6', attendu 'anthropic/claude-haiku-5.5'"):
+        check_run(alias_run(served="anthropic/claude-haiku-6"), ALIAS, "none", served_model=REAL)
+
+
+def test_alias_le_modele_demande_reste_verifie():
+    with pytest.raises(RunRejected, match="modèle demandé"):
+        check_run(alias_run(), "~anthropic/claude-sonnet-latest", "none", served_model=REAL)

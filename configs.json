@@ -110,5 +110,13 @@
     "model": "moonshotai/kimi-k2.5",
     "reasoning_effort": "low",
     "judge_prompt": "dd478ccfe671"
+  },
+  "juge_haiku_latest": {
+    "room": "th-NBY7t5aEZMerxZa1",
+    "deployment": "dp-2tV56e2ClDsPRr85",
+    "model": "~anthropic/claude-haiku-latest",
+    "reasoning_effort": "low",
+    "judge_prompt": "dd478ccfe671",
+    "served_model": "anthropic/claude-haiku-5.5"
   }
 }

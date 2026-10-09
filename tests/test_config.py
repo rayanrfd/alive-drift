@@ -180,6 +180,19 @@ def test_empreinte_de_juge_pas_un_texte_refusee(tmp_path):
         load_config(write_configs(tmp_path, configs), "A")
 
 
+def test_config_sur_un_alias_modele_servi(tmp_path):
+    path = tmp_path / "alias.json"
+    judge = Config(name="juge_haiku_latest", room="th-9", deployment="dp-H",
+                   model="~anthropic/claude-haiku-latest", reasoning_effort="low",
+                   judge_prompt="0123456789ab", served_model="anthropic/claude-haiku-5.5")
+    add_config(path, judge)
+    assert read_configs(path)["juge_haiku_latest"]["served_model"] == "anthropic/claude-haiku-5.5"
+    loaded = load_config(path, "juge_haiku_latest")
+    assert loaded == judge and loaded.served() == "anthropic/claude-haiku-5.5"
+    # sans alias, le modèle servi est le modèle demandé
+    assert load_config(write_configs(tmp_path, GOOD), "A").served() == GOOD["A"]["model"]
+
+
 # --- add_config : ajouter sans rien toucher d'autre ------------------------------
 
 NEW = Config(name="C", room="th-9", deployment="dp-C", model="m", reasoning_effort="none",

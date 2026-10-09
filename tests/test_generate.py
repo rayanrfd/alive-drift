@@ -725,3 +725,25 @@ def test_main_fichier_d_une_autre_campagne_code_2(tmp_path, monkeypatch):
     assert main(args, transport) == 2
     assert inputs == []
     assert out.read_text(encoding="utf-8") == "déjà là\n"  # intact
+
+
+# --- Une config sur un alias d'Alive -------------------------------------------------
+
+def test_generation_sur_un_alias(tmp_path):
+    # Le déploiement demande l'alias ; Alive répond avec le vrai nom, qu'on exige et qu'on note.
+    alias, real = "~anthropic/claude-haiku-latest", "anthropic/claude-haiku-5.5"
+    config = Config(name="H", room=ROOM, deployment=DEPLOYMENT, model=alias,
+                    reasoning_effort="none", served_model=real)
+
+    def handler(request):
+        run = unique_run()
+        run["model"]["requested"] = alias
+        run["model"]["served"][0]["model"] = real
+        return httpx.Response(200, json=run)
+
+    out = tmp_path / "H.jsonl"
+    with make_client(TOKEN, httpx.MockTransport(handler)) as client:
+        assert generate(client, make_questions(2), config, out_path=out, sleep=lambda s: None) == (2, 0)
+        assert [r["model"] for r in read_jsonl(out)] == [real, real]
+        # La reprise relit les lignes avec le vrai nom, sans erreur.
+        assert generate(client, make_questions(3), config, out_path=out, sleep=lambda s: None) == (1, 0)

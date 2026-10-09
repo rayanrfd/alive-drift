@@ -142,7 +142,7 @@ def judge_responses(client: httpx.Client, responses: list[dict], judge: Config,
             run = run_with_retries(client, judge.room, judge.deployment,
                                    user_message(response["question"], response["response"]),
                                    judge.model, judge.reasoning_effort, sleep=sleep,
-                                   give_up=stopping.is_set)
+                                   give_up=stopping.is_set, served_model=judge.served_model)
             try:
                 verdicts = parse_verdicts(run["content"], grid)
             except JudgeAnswerError as err:

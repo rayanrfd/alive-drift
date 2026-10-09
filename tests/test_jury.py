@@ -591,3 +591,35 @@ def test_les_juges_de_configs_ont_le_prompt_de_la_grille_de_travail():
     assert names  # il y a au moins un juge
     for name in names:
         check_judge(load_config(REPO / "configs.json", name), grid)
+
+
+# --- Un juge sur un alias d'Alive ----------------------------------------------------
+
+def test_juge_sur_un_alias(tmp_path):
+    # Déploiement sur "~anthropic/claude-haiku-latest" ; Alive répond avec le vrai nom.
+    alias, real = "~anthropic/claude-haiku-latest", "anthropic/claude-haiku-5.5"
+    judge = Config(name="juge_test", room="th-JUGE", deployment="dp-JUGE", model=alias,
+                   reasoning_effort="none", judge_prompt=PROMPT, served_model=real)
+    served = {"served": real}
+
+    def handler(request):
+        if request.method == "GET":
+            return deployments_response([alive_deployment(model=alias)])
+        run = judge_run(CONTENTS["ok"], served["served"])
+        run["model"]["requested"] = alias
+        return httpx.Response(200, json=run)
+
+    out = tmp_path / "out.jsonl"
+    with make_client(TOKEN, httpx.MockTransport(handler)) as client:
+        result = judge_responses(client, make_responses(2), judge, GRID, out_path=out,
+                                 sleep=lambda s: None)
+        assert result == (2, 0)
+        assert [v["model"] for v in read_jsonl(out)] == [real, real]  # le modèle qui a vraiment noté
+
+        # L'alias est redirigé vers un autre modèle : les runs suivants sont rejetés.
+        served["served"] = "anthropic/claude-haiku-6"
+        result = judge_responses(client, make_responses(3), judge, GRID, out_path=out,
+                                 sleep=lambda s: None)
+    assert result == (0, 1)  # la reprise accepte les 2 votes déjà faits avec le vrai nom
+    [error] = read_jsonl(errors_path_for(out))
+    assert "servi par 'anthropic/claude-haiku-6', attendu 'anthropic/claude-haiku-5.5'" in error["error"]

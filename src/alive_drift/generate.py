@@ -91,7 +91,7 @@ def generate(client: httpx.Client, questions: list[dict], config: Config, *,
             run = run_with_retries(client, config.room, config.deployment,
                                    question["text"], config.model,
                                    config.reasoning_effort, sleep=sleep,
-                                   give_up=stopping.is_set)
+                                   give_up=stopping.is_set, served_model=config.served_model)
         except (RunRejected, httpx.HTTPStatusError, httpx.TransportError) as err:
             return question, None, err
         return question, run, None

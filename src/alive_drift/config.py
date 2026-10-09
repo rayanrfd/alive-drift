@@ -13,8 +13,12 @@ Le prompt système est celui avec lequel le déploiement a été créé. C'est u
 trace : c'est le déploiement, côté Alive, qui l'applique. Il est facultatif
 (les configs écrites avant le 07/10 ne l'avaient pas).
 
-Un juge a un prompt système trop long pour ce fichier (les 34 critères). Sa
-config porte à la place "judge_prompt" : l'empreinte de ce prompt.
+Un juge a un prompt système trop long pour ce fichier. Sa config porte à la
+place "judge_prompt" : l'empreinte de ce prompt.
+
+Si "model" est un alias d'Alive (ex. "~anthropic/claude-haiku-latest"),
+"served_model" donne le vrai nom du modèle qui doit répondre
+("anthropic/claude-haiku-5.5"). Chaque run servi par un autre modèle est rejeté.
 
 On choisit une config par son NOM. On ne tape donc jamais le déploiement à la
 main : impossible de lancer "A" avec le déploiement de B.
@@ -26,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 FIELDS = ("room", "deployment", "model", "reasoning_effort")  # obligatoires
-OPTIONAL_FIELDS = ("system_prompt", "judge_prompt")
+OPTIONAL_FIELDS = ("system_prompt", "judge_prompt", "served_model")
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,11 @@ class Config:
     reasoning_effort: str
     system_prompt: str | None = None
     judge_prompt: str | None = None  # juges seulement : empreinte du prompt système
+    served_model: str | None = None  # si model est un alias : le modèle qui répond vraiment
+
+    def served(self) -> str:
+        """Le nom du modèle qui doit répondre : served_model s'il y en a un, sinon model."""
+        return self.served_model or self.model
 
 
 def _no_duplicate_keys(pairs):
@@ -89,7 +98,7 @@ def load_config(path, name: str) -> Config:
         if entry.get(field) is not None and not isinstance(entry[field], str):
             raise ValueError(f"{path} : config {name!r}, {field!r} doit être un texte")
     return Config(name=name, system_prompt=entry.get("system_prompt"),
-                  judge_prompt=entry.get("judge_prompt"),
+                  judge_prompt=entry.get("judge_prompt"), served_model=entry.get("served_model"),
                   **{field: entry[field] for field in FIELDS})
 
 

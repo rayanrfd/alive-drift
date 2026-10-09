@@ -23,6 +23,9 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   `uv run python -m alive_drift.deploy --name B --model openai/gpt-4.1-mini --system-prompt "..."`.
   Pour un juge, `--judge` remplace `--system-prompt` : le prompt est fabriqué depuis la
   grille, et la config garde son empreinte (`judge_prompt`) au lieu du texte entier.
+  Pour un alias d'Alive (modèle en `~…-latest`), ajouter `--served-model <vrai nom>` :
+  Alive répond avec le vrai nom du modèle, qui est exigé à chaque run (champ
+  `served_model` de la config). Un alias redirigé vers un autre modèle est donc rejeté.
 - `src/alive_drift/generate.py` : un run par question pour UNE config (A, A_bis, B).
   Il assemble trois pièces : `files.py` (lire les questions, écrire les lignes,
   relire ce qui est fait), `pool.py` (envoyer plusieurs questions à la fois et

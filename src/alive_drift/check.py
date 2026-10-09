@@ -12,11 +12,15 @@ class RunRejected(Exception):
     """La réponse du run ne doit pas être utilisée."""
 
 
-def check_run(run: dict, expected_model: str, expected_effort: str = "none") -> None:
+def check_run(run: dict, expected_model: str, expected_effort: str = "none",
+              served_model: str | None = None) -> None:
     """Lève RunRejected si la réponse ne doit pas être gardée.
 
     `run` est la réponse JSON d'Alive, déjà décodée en Python.
     `expected_effort` : l'effort de raisonnement voulu ("none" = coupé).
+    `served_model` : le nom du modèle qui doit répondre, si `expected_model` est
+    un alias d'Alive (ex. "~anthropic/claude-haiku-latest" sert
+    "anthropic/claude-haiku-5.5"). Par défaut, le même que `expected_model`.
     Ne renvoie rien si tout est bon.
     """
     # --- 0. La réponse est bien un objet JSON -------------------------------
@@ -54,8 +58,11 @@ def check_run(run: dict, expected_model: str, expected_effort: str = "none") -> 
     s = served[0]
     if not isinstance(s, dict):
         raise RunRejected(f"served[0] mal formé : {s!r}")
-    if s.get("model") != expected_model:
-        raise RunRejected(f"servi par {s.get('model')!r}, attendu {expected_model!r}")
+    # Avec un alias, Alive répond avec le vrai nom du modèle : on exige ce nom-là.
+    # Si l'alias est redirigé vers un autre modèle, le run est rejeté.
+    expected_served = served_model or expected_model
+    if s.get("model") != expected_served:
+        raise RunRejected(f"servi par {s.get('model')!r}, attendu {expected_served!r}")
     if s.get("substituted") is not False:
         raise RunRejected(f"served[0].substituted = {s.get('substituted')!r}")
     if s.get("calls") != 1:

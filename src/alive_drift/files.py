@@ -166,7 +166,7 @@ def load_done(out_path: Path, questions: list[dict], config: Config) -> tuple[se
             ("config", "config", config.name),
             ("room", "room_id", config.room),
             ("déploiement", "deployment_id", config.deployment),
-            ("modèle", "model", config.model),
+            ("modèle", "model", config.served()),
             ("effort de raisonnement", "reasoning_effort", config.reasoning_effort),
         ):
             if record.get(key) != expected:

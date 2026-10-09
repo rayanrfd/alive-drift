@@ -93,7 +93,8 @@ def make_client(token: str, transport: httpx.BaseTransport | None = None) -> htt
 
 
 def run_once(client: httpx.Client, room_id: str, deployment_id: str,
-             question: str, expected_model: str, expected_effort: str = "none") -> dict:
+             question: str, expected_model: str, expected_effort: str = "none",
+             served_model: str | None = None) -> dict:
     """Envoie la question, renvoie le JSON d'Alive s'il passe check_run.
 
     Lève httpx.HTTPStatusError si Alive répond une erreur (401, 502...),
@@ -111,7 +112,7 @@ def run_once(client: httpx.Client, room_id: str, deployment_id: str,
         run = response.json()
     except ValueError:  # code 200 mais le corps n'est pas du JSON
         raise RunRejected("réponse 200 illisible (pas du JSON)") from None
-    check_run(run, expected_model, expected_effort)
+    check_run(run, expected_model, expected_effort, served_model)
     return run
 
 
@@ -125,7 +126,8 @@ def is_retryable(err: Exception) -> bool:
 
 def run_with_retries(client: httpx.Client, room_id: str, deployment_id: str,
                      question: str, expected_model: str, expected_effort: str = "none",
-                     sleep=time.sleep, give_up=lambda: False) -> dict:
+                     sleep=time.sleep, give_up=lambda: False,
+                     served_model: str | None = None) -> dict:
     """run_once, avec jusqu'à 5 essais si l'échec est passager.
 
     RunRejected n'est JAMAIS réessayé : le run a abouti (donc il est facturé)
@@ -139,7 +141,7 @@ def run_with_retries(client: httpx.Client, room_id: str, deployment_id: str,
     for attempt in range(1, attempts + 1):
         try:
             return run_once(client, room_id, deployment_id, question,
-                            expected_model, expected_effort)
+                            expected_model, expected_effort, served_model)
         except (httpx.HTTPStatusError, httpx.TransportError) as err:
             if attempt == attempts or not is_retryable(err) or give_up():
                 raise  # dernier essai, erreur sans espoir, ou campagne en cours d'arrêt

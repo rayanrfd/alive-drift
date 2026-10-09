@@ -348,3 +348,26 @@ def test_juge_selection_avec_un_critere_inconnu_rien_n_est_cree(tmp_path, monkey
     assert main(judge_cli(configs_file(tmp_path), "--selection", str(selection)), transport) == 2
     assert requests == []
     assert "inconnus dans la sélection" in capsys.readouterr().err
+
+
+def test_main_alias_et_modele_servi(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    path = configs_file(tmp_path)
+    transport, requests = fake_alive()
+    args = ["--name", "juge_haiku_latest", "--model", "~anthropic/claude-haiku-latest",
+            "--served-model", "anthropic/claude-haiku-5.5", "--judge",
+            "--configs", str(path), "--grid", str(REPO_GRID), "--selection", str(REPO_SELECTION)]
+    assert main(args, transport) == 0
+    assert requests[1][2]["model"] == "~anthropic/claude-haiku-latest"  # Alive reçoit l'alias
+    config = load_config(path, "juge_haiku_latest")
+    assert config.model == "~anthropic/claude-haiku-latest"
+    assert config.served_model == "anthropic/claude-haiku-5.5"
+    assert "modèle servi     : anthropic/claude-haiku-5.5" in capsys.readouterr().out
+
+
+def test_main_sans_alias_pas_de_modele_servi(tmp_path, monkeypatch):
+    monkeypatch.setenv("ALIVE_TOKEN", TOKEN)
+    path = configs_file(tmp_path)
+    transport, _ = fake_alive()
+    assert main(cli(path), transport) == 0
+    assert "served_model" not in read_configs(path)["B"]

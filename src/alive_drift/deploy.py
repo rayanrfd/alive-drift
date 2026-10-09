@@ -86,11 +86,14 @@ def check_deployment(deployment: dict, *, deployment_id: str, agent: str, model:
 
 def deploy(client: httpx.Client, configs_path, *, name: str, model: str, system_prompt: str,
            reasoning_effort: str = "none", workspace: str = DEFAULT_WORKSPACE,
-           agent: str = DEFAULT_AGENT, judge: bool = False) -> Config:
+           agent: str = DEFAULT_AGENT, judge: bool = False,
+           served_model: str | None = None) -> Config:
     """Crée la room et le déploiement, vérifie les réglages, ajoute la config. Renvoie la config.
 
     judge=True : la config garde l'empreinte du prompt (champ judge_prompt)
     au lieu du prompt entier. Ce qui est envoyé à Alive est identique.
+    served_model : si `model` est un alias d'Alive, le vrai nom du modèle qui
+    doit répondre ; noté dans la config, vérifié à chaque run.
 
     Lève ValueError, sans rien créer, si le nom est vide ou déjà pris.
     Lève DeployError si Alive refuse une étape ou si les réglages ne sont pas
@@ -139,7 +142,8 @@ def deploy(client: httpx.Client, configs_path, *, name: str, model: str, system_
     config = Config(name=name, room=room, deployment=deployment_id, model=model,
                     reasoning_effort=reasoning_effort,
                     system_prompt=None if judge else system_prompt,
-                    judge_prompt=prompt_fingerprint(system_prompt) if judge else None)
+                    judge_prompt=prompt_fingerprint(system_prompt) if judge else None,
+                    served_model=served_model)
     add_config(configs_path, config)
     return config
 
@@ -149,6 +153,8 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     parser = argparse.ArgumentParser(description="Crée un déploiement de mesure sur Alive.")
     parser.add_argument("--name", required=True, help="nom de la config à créer, ex. B")
     parser.add_argument("--model", required=True, help="ex. openai/gpt-4.1-mini")
+    parser.add_argument("--served-model", default=None,
+                        help="si --model est un alias (~...) : le modèle qui doit répondre")
     prompt = parser.add_mutually_exclusive_group(required=True)
     prompt.add_argument("--system-prompt", help="le prompt système, entre guillemets")
     prompt.add_argument("--judge", action="store_true",
@@ -180,7 +186,8 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
             config = deploy(client, args.configs, name=args.name, model=args.model,
                             system_prompt=system_prompt,
                             reasoning_effort=args.reasoning_effort,
-                            workspace=args.workspace, agent=args.agent, judge=args.judge)
+                            workspace=args.workspace, agent=args.agent, judge=args.judge,
+                            served_model=args.served_model)
         except (ValueError, OSError) as err:
             print(f"REFUS : {err}", file=sys.stderr)
             return 2
@@ -191,6 +198,8 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     print(f"  room             : {config.room}")
     print(f"  déploiement      : {config.deployment}")
     print(f"  modèle           : {config.model}")
+    if config.served_model:
+        print(f"  modèle servi     : {config.served_model} (exigé à chaque run)")
     print(f"  raisonnement     : {config.reasoning_effort}")
     if args.judge:
         print(f"  prompt système   : celui des juges, {len(system_prompt)} caractères, "
