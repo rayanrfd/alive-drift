@@ -149,6 +149,15 @@ def test_numero_du_critere_sous_le_nom_id():
     assert parse_verdicts(content, SMALL) == parse_verdicts(GOOD, SMALL)
 
 
+def test_numero_ecrit_en_texte():
+    # Ce que GLM a renvoyé le 09/10 : "criterion_id": "1".
+    content = json.dumps({"results": [
+        {"criterion_id": "1", "explanation": "clair", "verdict": "met"},
+        {"criterion_id": " 2 ", "explanation": "trop affirmatif", "verdict": "not_met"},
+        {"criterion_id": 3, "id": "3", "explanation": "parce que", "verdict": "met"}]})
+    assert parse_verdicts(content, SMALL) == parse_verdicts(GOOD, SMALL)
+
+
 def test_seulement_id_et_dans_le_desordre():
     # Juge qui n'écrit que "id" et rend les éléments dans un autre ordre :
     # chaque verdict reste rangé sous le critère de son numéro.
@@ -169,7 +178,12 @@ def test_explication_absente_acceptee():
     (answer(item(1, True), item(2, False), item(2, True), item(3, True)), "2 en double"),
     (answer(item(1, True), item(2, False), item(3, True), item(4, True)), "criterion_id inconnu : 4"),
     (answer(item(0, True), item(2, False), item(3, True)), "criterion_id inconnu : 0"),
-    (answer(item("1", True), item(2, False), item(3, True)), "criterion_id inconnu : '1'"),
+    (answer(item("1.0", True), item(2, False), item(3, True)), "criterion_id inconnu : '1.0'"),
+    (answer(item(1.0, True), item(2, False), item(3, True)), "criterion_id inconnu : 1.0"),
+    (answer(item("un", True), item(2, False), item(3, True)), "criterion_id inconnu : 'un'"),
+    (answer(item("-1", True), item(2, False), item(3, True)), "criterion_id inconnu : '-1'"),
+    (answer(item("4", True), item(2, False), item(3, True)), "criterion_id inconnu : '4'"),
+    (answer(item("1", True), item(1, True), item(2, False), item(3, True)), "criterion_id 1 en double"),
     (answer(item(True, True), item(2, False), item(3, True)), "criterion_id inconnu : True"),
     (answer(raw(1, "true"), item(2, False), item(3, True)), "verdict = 'true'"),
     (answer(raw(1, "yes"), item(2, False), item(3, True)), "verdict = 'yes'"),
@@ -183,9 +197,9 @@ def test_explication_absente_acceptee():
     (json.dumps({"results": [{"criterion_id": 1, "id": 2, "verdict": "met"},
                              {"id": 2, "verdict": "not_met"}, {"id": 3, "verdict": "met"}]}),
      "criterion_id 1 et id 2 différents"),
-    (json.dumps({"results": [{"id": "1", "verdict": "met"},
+    (json.dumps({"results": [{"criterion_id": "2", "id": 1, "verdict": "met"},
                              {"id": 2, "verdict": "not_met"}, {"id": 3, "verdict": "met"}]}),
-     "criterion_id inconnu : '1'"),
+     "criterion_id '2' et id 1 différents"),
     (json.dumps({"verdicts": []}), "pas de liste 'results'"),
     (json.dumps({"results": {"1": True}}), "pas de liste 'results'"),
     ("I cannot evaluate this response.", "pas d'objet JSON"),

@@ -22,6 +22,7 @@ Voir le prompt complet :    uv run python -m alive_drift.judge
 import argparse
 import hashlib
 import json
+import re
 import sys
 from dataclasses import dataclass
 
@@ -134,6 +135,20 @@ def extract_json(content: str) -> dict:
         raise JudgeAnswerError(f"JSON illisible : {err}") from None
 
 
+def criterion_number(value) -> int | None:
+    """Le numéro d'un critère : un entier, ou un entier écrit en chiffres ("1").
+
+    GLM écrit parfois "criterion_id": "1" (environ 5 % de ses runs le 09/10).
+    Rien d'autre n'est accepté : ni 1.0, ni "un", ni "-1", ni un booléen.
+    Renvoie None si la valeur n'est pas un numéro.
+    """
+    if type(value) is int:
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()):
+        return int(value)  # int() ignore les espaces autour
+    return None
+
+
 def parse_verdicts(content: str, grid: list[Criterion]) -> dict[str, Verdict]:
     """{nom du critère: Verdict}, pour chaque critère de `grid`, dans l'ordre de la grille.
 
@@ -147,7 +162,8 @@ def parse_verdicts(content: str, grid: list[Criterion]) -> dict[str, Verdict]:
 
     Le numéro du critère est lu dans "criterion_id", ou à défaut dans "id" :
     à l'essai du 07/10, DeepSeek écrivait "id" (comme dans <rubric_item id=...>)
-    6 fois sur 7. Si les deux sont là et diffèrent, on refuse.
+    6 fois sur 7. Si les deux sont là et diffèrent, on refuse. Un numéro écrit
+    en chiffres entre guillemets ("1") vaut le nombre 1 (voir criterion_number).
     """
     results = extract_json(content).get("results")
     if not isinstance(results, list):
@@ -156,11 +172,13 @@ def parse_verdicts(content: str, grid: list[Criterion]) -> dict[str, Verdict]:
     for item in results:
         if not isinstance(item, dict):
             raise JudgeAnswerError(f"élément de 'results' mal formé : {item!r}")
-        number, word = item.get("criterion_id", item.get("id")), item.get("verdict")
-        if "criterion_id" in item and "id" in item and item["criterion_id"] != item["id"]:
+        raw = item.get("criterion_id", item.get("id"))
+        if ("criterion_id" in item and "id" in item
+                and criterion_number(item["criterion_id"]) != criterion_number(item["id"])):
             raise JudgeAnswerError(f"criterion_id {item['criterion_id']!r} et id {item['id']!r} différents")
-        if type(number) is not int or not 1 <= number <= len(grid):
-            raise JudgeAnswerError(f"criterion_id inconnu : {number!r}")
+        number, word = criterion_number(raw), item.get("verdict")
+        if number is None or not 1 <= number <= len(grid):
+            raise JudgeAnswerError(f"criterion_id inconnu : {raw!r}")
         if number in by_number:
             raise JudgeAnswerError(f"criterion_id {number} en double")
         key = word.strip().lower().replace("-", "_").replace(" ", "_") if isinstance(word, str) else None
