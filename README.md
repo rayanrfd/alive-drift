@@ -69,6 +69,13 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   Comme `generate`, il s'appuie sur un fichier qui lit et écrit les lignes :
   `votes.py` (réponses à noter, ligne de vote, reprise).
   `uv run python -m alive_drift.jury --judge juge_glm --responses outputs/A.jsonl --limit 3`.
+- `src/alive_drift/scores.py` : des votes du jury à une note par réponse. Aucun appel à
+  Alive. Pour un critère : part de « oui » parmi les juges qui ne disent pas N/A (oui, non,
+  N/A -> 1/2 ; tous N/A -> pas de valeur). Score d'un thème, score global : moyenne des
+  critères qui ont une valeur. Une réponse n'est notée que si TOUS les juges demandés l'ont
+  notée (sinon écartée et comptée). Écrit `outputs/scores/<date-heure>/<config>.jsonl`
+  (jamais par-dessus un calcul) et affiche un résumé par config, par juge et par critère :
+  `uv run python -m alive_drift.scores --judges juge_haiku_latest juge_glm juge_deepseek`.
 - `archive/` : les juges qui ne servent plus (anciennes consignes, ancienne grille), gardés
   comme trace ; voir `archive/README.md`.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
@@ -111,5 +118,8 @@ passe avant le fichier. Jamais dans un fichier commité.
 - Jury : la reprise reconnaît une réponse déjà notée par son `execution_id`. Un texte de
   réponse modifié à la main dans `outputs/` (interdit par les règles du projet) ne serait
   pas détecté.
+- Scores : les fichiers de votes sont relus tels quels (même juge, même grille, même
+  réponse pour tous les juges) ; le déploiement et le prompt du juge ont déjà été vérifiés
+  par `jury` à l'écriture et ne sont pas revérifiés ici.
 - Jury : le numéro de critère donné par le juge est cru. Un juge qui se trompe de numéro
   range son verdict sous un autre critère ; la méta-évaluation mesurera ce genre d'erreur.
