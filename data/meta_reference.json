@@ -1,0 +1,74 @@
+{
+  "source": "2025-05-07-06-14-12_oss_meta_eval.jsonl",
+  "source_sha256_12": "6a343ed3fcb6",
+  "seed": 0,
+  "per_label": 25,
+  "sample": "meta_sample.jsonl",
+  "sample_sha256_12": "d99358479774",
+  "physicians": {
+    "communication_not-health-professional_accuracy_completeness": {
+      "yes": 685,
+      "no": 55,
+      "tie": 187,
+      "agreeing_pairs": 740,
+      "pairs": 927,
+      "agreement": 0.7982740021574973
+    },
+    "communication_not-health-professional_tailored": {
+      "yes": 679,
+      "no": 75,
+      "tie": 173,
+      "agreeing_pairs": 754,
+      "pairs": 927,
+      "agreement": 0.8133764832793959
+    },
+    "complex_responses_detailed_appropriate": {
+      "yes": 249,
+      "no": 21,
+      "tie": 106,
+      "agreeing_pairs": 270,
+      "pairs": 376,
+      "agreement": 0.7180851063829787
+    },
+    "context_seeking_not-enough-context_context_seeking": {
+      "yes": 101,
+      "no": 170,
+      "tie": 120,
+      "agreeing_pairs": 293,
+      "pairs": 439,
+      "agreement": 0.6674259681093394
+    },
+    "emergency_referrals_conditionally-emergent_emergency_behavior": {
+      "yes": 237,
+      "no": 114,
+      "tie": 180,
+      "agreeing_pairs": 351,
+      "pairs": 531,
+      "agreement": 0.6610169491525424
+    },
+    "emergency_referrals_emergent_emergency_behavior": {
+      "yes": 216,
+      "no": 90,
+      "tie": 81,
+      "agreeing_pairs": 306,
+      "pairs": 387,
+      "agreement": 0.7906976744186046
+    },
+    "health_data_tasks_enough-info-to-complete-task_response_instruction_following": {
+      "yes": 293,
+      "no": 131,
+      "tie": 135,
+      "agreeing_pairs": 424,
+      "pairs": 559,
+      "agreement": 0.7584973166368515
+    },
+    "hedging_any-reducible-uncertainty_accurate": {
+      "yes": 569,
+      "no": 27,
+      "tie": 68,
+      "agreeing_pairs": 792,
+      "pairs": 940,
+      "agreement": 0.8425531914893617
+    }
+  }
+}

@@ -81,6 +81,21 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   `<nom>_clinical_adequacy.jsonl` avec `id`, `clinical_adequacy` et `jury_fingerprint`
   (juges + grille). Refuse des configs notées par des jurys différents. Aucun appel à Alive :
   `uv run python -m alive_drift.export_richter outputs/scores/<date-heure>`.
+- `data/meta_sample.jsonl` + `data/meta_reference.json` + `src/alive_drift/meta_sample.py` :
+  l'échantillon figé de la méta-évaluation, tiré du fichier `oss_meta_eval` de HealthBench
+  (réponses jugées par 2 à 4 médecins, critère par critère). Pour chacun des 8 critères :
+  25 « oui » et 25 « non » des médecins (21 « non » seulement pour le critère 3), questions en
+  un tour, égalités écartées, graine 0 ; soit 396 lignes et 393 réponses différentes.
+  `meta_reference.json` garde l'empreinte de la source et l'accord entre médecins par critère.
+  Refait à l'identique par `uv run python -m alive_drift.meta_sample --source <oss_meta_eval.jsonl>
+  --out /tmp/x.jsonl --reference /tmp/x.json` (même empreinte attendue).
+- `src/alive_drift/meta_eval.py` : la méta-évaluation. `run` fait noter l'échantillon par un
+  juge tel qu'il est déployé (même mécanique et mêmes vérifications que `jury`, votes dans
+  `outputs/meta_eval/<juge>.jsonl`, 393 runs payants par juge) ; `report` compare aux médecins
+  sans aucun appel : justesse équilibrée par critère (0.5 = hasard, « non applicable » compte
+  faux), part de N/A, juges seuls et jury (règle des scores), accord entre médecins en regard.
+  `uv run python -m alive_drift.meta_eval run --judge juge_glm --limit 5`, puis
+  `uv run python -m alive_drift.meta_eval report --judges juge_haiku_latest juge_glm juge_deepseek`.
 - `archive/` : les juges qui ne servent plus (anciennes consignes, ancienne grille), gardés
   comme trace ; voir `archive/README.md`.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
@@ -141,5 +156,8 @@ passe avant le fichier. Jamais dans un fichier commité.
   par `jury` à l'écriture et ne sont pas revérifiés ici.
 - Richter : l'empreinte du jury couvre les juges et la grille, pas les consignes du prompt
   des juges (vérifiées par `jury` au moment du vote, pas recopiées dans les scores).
+- Méta-évaluation : l'accord entre médecins porte sur toutes les lignes en un tour (égalités
+  comprises), la justesse des juges sur les lignes sans égalité : ce ne sont pas les mêmes
+  lignes, la comparaison est indicative.
 - Jury : le numéro de critère donné par le juge est cru. Un juge qui se trompe de numéro
   range son verdict sous un autre critère ; la méta-évaluation mesurera ce genre d'erreur.
