@@ -77,7 +77,8 @@ def check_judge_at_alive(client: httpx.Client, judge: Config, grid: list[Criteri
     recette de mesure. Si quelqu'un a modifié le juge dans l'interface d'Alive,
     on le voit avant le premier run.
 
-    Lève ValueError si le déploiement est introuvable ou si un réglage diffère,
+    Lève ValueError si le déploiement est introuvable (ou absent de la première page
+    d'une liste paginée : la suite n'est pas lue) ou si un réglage diffère,
     httpx.HTTPStatusError si Alive refuse la lecture (401...).
     """
     response = client.get(f"/threads/{judge.room}/deployments")
@@ -88,6 +89,14 @@ def check_judge_at_alive(client: httpx.Client, judge: Config, grid: list[Criteri
         raise ValueError(f"room {judge.room} : liste des déploiements illisible chez Alive")
     found = [d for d in deployments if isinstance(d, dict) and d.get("id") == judge.deployment]
     if not found:
+        # La liste est paginée (next_after) ; on ne lit que la première page tant que le
+        # nom du paramètre de page d'Alive n'est pas confirmé. On le dit au lieu de
+        # prétendre que le déploiement n'existe pas.
+        if body.get("next_after") is not None:
+            raise ValueError(
+                f"déploiement {judge.deployment} absent de la première page des déploiements "
+                f"de la room {judge.room} ; la liste continue (next_after={body['next_after']!r}) "
+                "mais la page suivante n'est pas lue")
         raise ValueError(f"déploiement {judge.deployment} introuvable dans la room {judge.room} chez Alive")
     try:
         # L'agent n'est pas noté dans configs.json : on ne peut pas le comparer.

@@ -83,9 +83,12 @@ def alive_deployment(prompt=None, **changes):
 
 
 def deployments_response(listing):
-    """Réponse d'Alive à la lecture des déploiements : un code d'erreur, ou la liste."""
+    """Réponse d'Alive à la lecture des déploiements : un code d'erreur, la liste, ou
+    la page entière ({"data": [...], "next_after": ...}) telle quelle."""
     if isinstance(listing, int):
         return httpx.Response(listing, json={"detail": f"erreur {listing}"})
+    if isinstance(listing, dict):
+        return httpx.Response(200, json=listing)
     return httpx.Response(200, json={"data": listing, "next_after": None})
 
 
@@ -373,6 +376,20 @@ def test_deploiement_introuvable_chez_alive(tmp_path):
 def test_le_bon_deploiement_parmi_plusieurs(tmp_path):
     listing = [alive_deployment(id="dp-AUTRE", model="autre/modele"), alive_deployment()]
     result, requests = run_jury(make_responses(2), tmp_path / "out.jsonl", listing=listing)
+    assert result == (2, 0)
+
+
+def test_deploiement_sur_une_page_suivante_refus_explicite(tmp_path):
+    page = {"data": [alive_deployment(id="dp-AUTRE")], "next_after": "page-2"}
+    result, requests = run_jury(make_responses(2), tmp_path / "out.jsonl", listing=page)
+    assert isinstance(result, ValueError)
+    assert "absent de la première page" in str(result) and "'page-2'" in str(result)
+    assert requests == []
+
+
+def test_le_juge_sur_la_premiere_page_d_une_liste_qui_continue(tmp_path):
+    page = {"data": [alive_deployment()], "next_after": "page-2"}
+    result, requests = run_jury(make_responses(2), tmp_path / "out.jsonl", listing=page)
     assert result == (2, 0)
 
 

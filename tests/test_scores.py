@@ -11,7 +11,9 @@ from pathlib import Path
 import pytest
 
 from alive_drift.grid import Criterion, grid_fingerprint, load_working_grid
-from alive_drift.scores import criterion_values, main, read_votes, score_config, score_response
+from alive_drift.scores import (
+    criterion_values, main, question_order, read_votes, score_config, score_response,
+)
 
 REPO = Path(__file__).parent.parent
 REPO_GRID = REPO / "data" / "criteria.json"
@@ -116,6 +118,12 @@ def test_refus_liste_de_juges_vide_ou_en_double(tmp_path, judges):
 def test_refus_fichier_de_votes_absent(tmp_path):
     with pytest.raises(FileNotFoundError, match="introuvable"):
         score_config("A", ["j1"], GRID, tmp_path)
+
+
+def test_ordre_des_questions_chiffres_0_9_seulement():
+    # "²" et "٢" passent str.isdigit() mais int() échoue dessus : ce ne sont pas des numéros.
+    ids = ["10", "²", "2", "b", "٢", "0", "a"]
+    assert sorted(ids, key=question_order) == ["0", "2", "10", "a", "b", "²", "٢"]
 
 
 # --- Lecture d'un fichier de votes -------------------------------------------------

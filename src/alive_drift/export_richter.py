@@ -25,6 +25,7 @@ deux dépôts ne se parlent que par ces fichiers.
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -44,7 +45,7 @@ def read_scores(path, config: str) -> list[dict]:
     """Les lignes d'un fichier de scores.py, vérifiées.
 
     Lève FileNotFoundError si le fichier manque, ValueError si une ligne est
-    d'une autre config, n'a pas un id numérique, apparaît deux fois, ou n'a
+    d'une autre config, n'a pas un id numérique (chiffres 0-9, sans zéro en tête), apparaît deux fois, ou n'a
     pas un score entre 0 et 1 (ou null), une liste de juges et une grille.
     """
     path = Path(path)
@@ -55,7 +56,9 @@ def read_scores(path, config: str) -> list[dict]:
         if row.get("config") != config:
             raise ValueError(f"{where} : config {row.get('config')!r}, attendu {config!r}")
         qid = row.get("question_id")
-        if not isinstance(qid, str) or not qid.isdigit():
+        # Chiffres 0-9 seulement, sans zéro en tête : "01" et "1" donneraient le même
+        # id entier, et drift-audit garderait le premier sans rien dire.
+        if not isinstance(qid, str) or re.fullmatch(r"0|[1-9][0-9]*", qid) is None:
             raise ValueError(f"{where} : question_id {qid!r} n'est pas un numéro")
         if qid in seen:
             raise ValueError(f"{where} : question {qid!r} en double")

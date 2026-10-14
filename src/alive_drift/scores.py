@@ -20,6 +20,7 @@ lit outputs/jury/<config>.<juge>.jsonl, écrit outputs/scores/<date-heure>/<conf
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -93,8 +94,13 @@ def score_response(votes_by_judge: dict[str, dict], grid: list[Criterion]) -> di
 
 
 def question_order(qid: str):
-    """Ordre des questions : 0, 1, 2... puis les ids non numériques."""
-    return (not qid.isdigit(), int(qid) if qid.isdigit() else 0, qid)
+    """Ordre des questions : 0, 1, 2... puis les autres ids.
+
+    Seuls les chiffres 0-9 comptent comme un numéro : str.isdigit() accepte
+    aussi « ² » ou « ٢ », sur lesquels int() échoue.
+    """
+    numeric = re.fullmatch(r"[0-9]+", qid) is not None
+    return (not numeric, int(qid) if numeric else 0, qid)
 
 
 def score_config(config: str, judges: list[str], grid: list[Criterion],

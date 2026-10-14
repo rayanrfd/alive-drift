@@ -95,6 +95,10 @@ def test_refus_si_les_configs_n_ont_pas_le_meme_jury(b_changes):
 @pytest.mark.parametrize("changes, message", [
     ({"config": "B"}, "config 'B', attendu 'A'"),
     ({"question_id": "q1"}, "n'est pas un numéro"),
+    ({"question_id": "²"}, "n'est pas un numéro"),
+    ({"question_id": "٢"}, "n'est pas un numéro"),
+    ({"question_id": "01"}, "n'est pas un numéro"),
+    ({"question_id": "1 "}, "n'est pas un numéro"),
     ({"question_id": "0"}, "en double"),
     ({"score": 1.2}, "hors de"),
     ({"score": -0.1}, "hors de"),
