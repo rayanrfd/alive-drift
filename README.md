@@ -76,10 +76,28 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   notée (sinon écartée et comptée). Écrit `outputs/scores/<date-heure>/<config>.jsonl`
   (jamais par-dessus un calcul) et affiche un résumé par config, par juge et par critère :
   `uv run python -m alive_drift.scores --judges juge_haiku_latest juge_glm juge_deepseek`.
+- `src/alive_drift/export_richter.py` : écrit les scores au format que drift-audit lit pour
+  le test de Richter : `a_hb` (A), `a_bis_hb` (A_bis), `b_hb` (B), fichiers
+  `<nom>_clinical_adequacy.jsonl` avec `id`, `clinical_adequacy` et `jury_fingerprint`
+  (juges + grille). Refuse des configs notées par des jurys différents. Aucun appel à Alive :
+  `uv run python -m alive_drift.export_richter outputs/scores/<date-heure>`.
 - `archive/` : les juges qui ne servent plus (anciennes consignes, ancienne grille), gardés
   comme trace ; voir `archive/README.md`.
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
+
+## Du jury à Richter
+
+```zsh
+uv run python -m alive_drift.scores --judges juge_haiku_latest juge_glm juge_deepseek
+uv run python -m alive_drift.export_richter outputs/scores/<date-heure>
+cd ../pipeline
+uv run python run_pipeline1.py --scores-dir <dossier affiché par export_richter> \
+    --out-dir results/alive_<date-heure> --run-id alive_<date-heure>
+```
+
+`run_pipeline1.py` enchaîne l'alignement, Richter (A contre A_bis, puis A contre B) et les
+permutations de fausses alarmes. Il écrit avec `--overwrite` : toujours un `--out-dir` neuf.
 
 ## Tests
 
@@ -121,5 +139,7 @@ passe avant le fichier. Jamais dans un fichier commité.
 - Scores : les fichiers de votes sont relus tels quels (même juge, même grille, même
   réponse pour tous les juges) ; le déploiement et le prompt du juge ont déjà été vérifiés
   par `jury` à l'écriture et ne sont pas revérifiés ici.
+- Richter : l'empreinte du jury couvre les juges et la grille, pas les consignes du prompt
+  des juges (vérifiées par `jury` au moment du vote, pas recopiées dans les scores).
 - Jury : le numéro de critère donné par le juge est cru. Un juge qui se trompe de numéro
   range son verdict sous un autre critère ; la méta-évaluation mesurera ce genre d'erreur.
