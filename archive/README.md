@@ -19,3 +19,7 @@ Ce qui ne sert plus, gardé comme trace. Rien ici n'est lu par le code.
   à 8 critères (`data/selection.json`). Sonnet, Gemini 3.8 et GLM, les seuls à voir la
   dérive de B sur la question 0, sont recréés sous les mêmes noms avec la nouvelle grille.
   Leurs votes d'essai sont dans `outputs/jury/grille_34/` (non suivi par git).
+- `agents_sans_raisonnement.json` : l'agent C (GPT-5 mini, même prompt que A) créé le 15/10
+  avec `reasoning_effort: none`. Aucun run n'a abouti : « Reasoning is mandatory for this
+  endpoint and cannot be disabled » (502, non facturé). Recréé sous le même nom avec un
+  raisonnement faible. Ses échecs sont dans `outputs/C_none.errors.jsonl` (non suivi par git).
