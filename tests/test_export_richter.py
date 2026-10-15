@@ -64,8 +64,28 @@ def test_des_votes_aux_fichiers_de_richter(tmp_path, capsys):
     assert [r["id"] for r in b] == [0, 1]          # la 2 de B a été écartée par scores.py
     out = capsys.readouterr().out
     assert f"empreinte du jury : {fingerprint}" in out
-    assert "b_hb          2 questions, dont 0 sans score" in out
+    assert "b_hb      (B    )     2 questions, dont 0 sans score" in out
     assert f"run_pipeline1.py --scores-dir {out_dir.resolve()}" in out
+
+
+def test_un_autre_agent_comme_derive_a_detecter(tmp_path, capsys):
+    rows = three_configs()
+    rows["C"] = [score_row("0", 0.1, "C"), score_row("1", 0.2, "C")]
+    scores_dir = write_scores(tmp_path / "scores", rows)          # B est là aussi : ignoré
+    out_dir = tmp_path / "richter"
+    assert main([str(scores_dir), "--out-dir", str(out_dir), "--h1", "C"]) == 0
+    b = read_out(out_dir / "b_hb_clinical_adequacy.jsonl")
+    assert [(r["id"], r["clinical_adequacy"], r["config"]) for r in b] == [(0, 0.1, "C"), (1, 0.2, "C")]
+    assert [r["config"] for r in read_out(out_dir / "a_hb_clinical_adequacy.jsonl")] == ["A", "A"]
+    assert "b_hb      (C    )     2 questions" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("h1", ["A", "A_bis", ""])
+def test_refus_si_la_derive_est_la_reference_ou_le_controle(tmp_path, capsys, h1):
+    scores_dir = write_scores(tmp_path / "scores", three_configs())
+    assert main([str(scores_dir), "--out-dir", str(tmp_path / "richter"), "--h1", h1]) == 2
+    assert "ne peut pas être A ni A_bis" in capsys.readouterr().err
+    assert not (tmp_path / "richter").exists()
 
 
 # --- Contenu ----------------------------------------------------------------------------

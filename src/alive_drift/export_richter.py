@@ -6,7 +6,7 @@ une ligne par question :
 
     a_hb_clinical_adequacy.jsonl      <- A      (référence)
     a_bis_hb_clinical_adequacy.jsonl  <- A_bis  (contrôle : rien n'a changé)
-    b_hb_clinical_adequacy.jsonl      <- B      (dérive à détecter)
+    b_hb_clinical_adequacy.jsonl      <- B      (dérive à détecter ; --h1 C pour un autre agent)
 
     {"id": 12, "clinical_adequacy": 0.75, "jury_fingerprint": "…", ...}
 
@@ -17,7 +17,9 @@ grille, et on refuse dès l'export des scores qui n'ont pas le même jury.
 
     uv run python -m alive_drift.export_richter outputs/scores/20261014-144523
 
-écrit outputs/richter/20261014-144523/ (jamais par-dessus) et affiche la
+    uv run python -m alive_drift.export_richter outputs/scores/jury3_C --h1 C
+
+écrit outputs/richter/<nom du dossier de scores>/ (jamais par-dessus) et affiche la
 commande de Richter. Aucun appel à Alive. Aucun import de drift-audit : les
 deux dépôts ne se parlent que par ces fichiers.
 """
@@ -31,8 +33,15 @@ from pathlib import Path
 
 from alive_drift.files import append_line, read_records
 
-# Nom de la config ici -> nom attendu par drift-audit (REF, H0, H1 de run_pipeline1).
-NAMES = {"A": "a_hb", "A_bis": "a_bis_hb", "B": "b_hb"}
+def names_for(h1: str = "B") -> dict[str, str]:
+    """Nom de la config ici -> nom attendu par drift-audit (REF, H0, H1 de run_pipeline1).
+
+    A est toujours la référence et A_bis le contrôle ; `h1` est l'agent dont on
+    cherche la dérive (B par défaut, ou C...). Lève ValueError si h1 vaut A ou A_bis.
+    """
+    if not h1 or h1 in ("A", "A_bis"):
+        raise ValueError(f"--h1 {h1!r} : la dérive à détecter ne peut pas être A ni A_bis")
+    return {"A": "a_hb", "A_bis": "a_bis_hb", h1: "b_hb"}
 
 
 def jury_fingerprint(judges: list[str], grid: str) -> str:
@@ -78,7 +87,8 @@ def read_scores(path, config: str) -> list[dict]:
     return rows
 
 
-def export_rows(rows_by_config: dict[str, list[dict]]) -> tuple[str, dict[str, list[dict]]]:
+def export_rows(rows_by_config: dict[str, list[dict]],
+                names: dict[str, str] | None = None) -> tuple[str, dict[str, list[dict]]]:
     """(empreinte du jury, {nom drift-audit: lignes à écrire}).
 
     Lève ValueError si deux lignes, de la même config ou non, n'ont pas été
@@ -89,9 +99,10 @@ def export_rows(rows_by_config: dict[str, list[dict]]) -> tuple[str, dict[str, l
         raise ValueError(f"les scores ne viennent pas du même jury : {sorted(juries)}")
     (judges, grid), = juries
     fingerprint = jury_fingerprint(list(judges), grid)
+    names = names or names_for()
     out = {}
     for config, rows in rows_by_config.items():
-        out[NAMES[config]] = [{"id": int(r["question_id"]), "clinical_adequacy": r["score"],
+        out[names[config]] = [{"id": int(r["question_id"]), "clinical_adequacy": r["score"],
                                "jury_fingerprint": fingerprint, "config": config,
                                "response_execution_id": r.get("response_execution_id"),
                                "judges": list(judges), "grid": grid}
@@ -105,14 +116,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("scores_dir", help="un dossier écrit par scores.py, ex. outputs/scores/20261014-144523")
     parser.add_argument("--out-dir", default=None,
                         help="défaut : outputs/richter/<nom du dossier de scores>")
+    parser.add_argument("--h1", default="B",
+                        help="l'agent dont on cherche la dérive, écrit en b_hb (défaut : B)")
     args = parser.parse_args(argv)
     scores_dir = Path(args.scores_dir)
     out_dir = Path(args.out_dir or Path("outputs") / "richter" / scores_dir.name)
     try:
         if out_dir.exists():
             raise ValueError(f"{out_dir} existe déjà : on n'écrit jamais par-dessus")
-        rows_by_config = {c: read_scores(scores_dir / f"{c}.jsonl", c) for c in NAMES}
-        fingerprint, out = export_rows(rows_by_config)
+        names = names_for(args.h1)
+        rows_by_config = {c: read_scores(scores_dir / f"{c}.jsonl", c) for c in names}
+        fingerprint, out = export_rows(rows_by_config, names)
     except (ValueError, OSError) as err:
         print(f"REFUS : {err}", file=sys.stderr)
         return 2
@@ -121,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         for row in rows:
             append_line(out_dir / f"{name}_clinical_adequacy.jsonl", row)
         nulls = sum(r["clinical_adequacy"] is None for r in rows)
-        print(f"{name:9} {len(rows):5} questions, dont {nulls} sans score (tout N/A)")
+        print(f"{name:9} ({rows[0]['config']:5}) {len(rows):5} questions, dont {nulls} sans score (tout N/A)")
     print(f"empreinte du jury : {fingerprint}")
     print(f"-> {out_dir}")
     print("Richter (depuis le dossier pipeline) :\n"
