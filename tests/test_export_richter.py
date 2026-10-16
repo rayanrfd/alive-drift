@@ -80,6 +80,22 @@ def test_un_autre_agent_comme_derive_a_detecter(tmp_path, capsys):
     assert "b_hb      (C    )     2 questions" in capsys.readouterr().out
 
 
+def test_deux_exports_du_meme_dossier_de_scores_donnent_deux_commandes(tmp_path, capsys):
+    # Scénario du vérificateur : jury3 exporté avec B, puis avec C sous un autre nom.
+    # Avant : les deux commandes affichées visaient results/alive_jury3 (écrasement).
+    rows = three_configs()
+    rows["C"] = [score_row("0", 0.1, "C"), score_row("1", 0.2, "C")]
+    scores_dir = write_scores(tmp_path / "scores" / "jury3", rows)
+    assert main([str(scores_dir), "--out-dir", str(tmp_path / "richter" / "jury3")]) == 0
+    first = capsys.readouterr().out
+    assert main([str(scores_dir), "--out-dir", str(tmp_path / "richter" / "jury3_C"),
+                 "--h1", "C"]) == 0
+    second = capsys.readouterr().out
+    assert "--out-dir results/alive_jury3 --run-id alive_jury3\n" in first
+    assert "--out-dir results/alive_jury3_C --run-id alive_jury3_C\n" in second
+    assert "results/alive_jury3 " not in second
+
+
 @pytest.mark.parametrize("h1", ["A", "A_bis", ""])
 def test_refus_si_la_derive_est_la_reference_ou_le_controle(tmp_path, capsys, h1):
     scores_dir = write_scores(tmp_path / "scores", three_configs())

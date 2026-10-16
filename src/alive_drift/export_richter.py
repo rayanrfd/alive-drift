@@ -146,9 +146,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{name:9} ({rows[0]['config']:5}) {len(rows):5} questions, dont {nulls} sans score (tout N/A)")
     print(f"empreinte du jury : {fingerprint}")
     print(f"-> {out_dir}")
+    # Nom du run = nom du dossier d'export, pas du dossier de scores : un même dossier de
+    # scores peut donner plusieurs exports (--h1 C, --ref L...), et run_pipeline1 écrase
+    # son --out-dir sans prévenir. Deux exports différents -> deux commandes différentes.
+    run = f"alive_{out_dir.name}"
     print("Richter (depuis le dossier pipeline) :\n"
           f"  uv run python run_pipeline1.py --scores-dir {out_dir.resolve()} "
-          f"--out-dir results/alive_{scores_dir.name} --run-id alive_{scores_dir.name}")
+          f"--out-dir results/{run} --run-id {run}")
     return 0
 
 
