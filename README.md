@@ -113,6 +113,9 @@ prescrit. Séparé du reste (HealthBench, jury). Construit morceau par morceau, 
 - `src/alive_drift/mab/tasks.py` : lit les tâches et fabrique le premier message envoyé au
   modèle, identique à celui de MedAgentBench. Aucun appel réseau :
   `uv run python -m alive_drift.mab.tasks --task task5_1`.
+- `src/alive_drift/mab/actions.py` : lit la réponse du modèle à chaque tour (GET, POST,
+  FINISH ou action invalide) et fabrique la phrase à lui renvoyer, exactement comme
+  l'orchestrateur de MedAgentBench, bizarreries comprises (voir `tests/mab/test_actions.py`).
 
 ## Du jury à Richter
 
