@@ -88,6 +88,39 @@ def test_refus_si_la_derive_est_la_reference_ou_le_controle(tmp_path, capsys, h1
     assert not (tmp_path / "richter").exists()
 
 
+def test_une_autre_reference_et_son_controle(tmp_path, capsys):
+    rows = {"L": [score_row("0", 0.5, "L"), score_row("1", 0.75, "L")],
+            "L_bis": [score_row("0", 0.5, "L_bis"), score_row("1", 1.0, "L_bis")],
+            "M": [score_row("0", 0.25, "M"), score_row("1", 0.5, "M")]}
+    rows.update(three_configs())                          # A, A_bis, B présents : ignorés
+    scores_dir = write_scores(tmp_path / "scores", rows)
+    out_dir = tmp_path / "richter"
+    assert main([str(scores_dir), "--out-dir", str(out_dir),
+                 "--ref", "L", "--h0", "L_bis", "--h1", "M"]) == 0
+    got = {name: [(r["id"], r["clinical_adequacy"], r["config"])
+                  for r in read_out(out_dir / f"{name}_clinical_adequacy.jsonl")]
+           for name in ("a_hb", "a_bis_hb", "b_hb")}
+    assert got == {"a_hb": [(0, 0.5, "L"), (1, 0.75, "L")],
+                   "a_bis_hb": [(0, 0.5, "L_bis"), (1, 1.0, "L_bis")],
+                   "b_hb": [(0, 0.25, "M"), (1, 0.5, "M")]}
+    out = capsys.readouterr().out
+    assert "a_hb      (L    )     2 questions" in out
+    assert "a_bis_hb  (L_bis)     2 questions" in out
+
+
+@pytest.mark.parametrize("args, message", [
+    (["--ref", "L", "--h0", "L"], "il faut deux configs différentes"),
+    (["--ref", "", "--h0", "L_bis"], "il faut deux configs différentes"),
+    (["--ref", "L", "--h0", "L_bis", "--h1", "L_bis"], "ne peut pas être L ni L_bis"),
+])
+def test_refus_si_reference_controle_et_derive_ne_sont_pas_trois_configs(tmp_path, capsys,
+                                                                          args, message):
+    scores_dir = write_scores(tmp_path / "scores", three_configs())
+    assert main([str(scores_dir), "--out-dir", str(tmp_path / "richter"), *args]) == 2
+    assert message in capsys.readouterr().err
+    assert not (tmp_path / "richter").exists()
+
+
 # --- Contenu ----------------------------------------------------------------------------
 
 def test_un_score_null_est_ecrit_tel_quel():

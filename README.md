@@ -80,7 +80,8 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   le test de Richter : `a_hb` (A), `a_bis_hb` (A_bis), `b_hb` (B), fichiers
   `<nom>_clinical_adequacy.jsonl` avec `id`, `clinical_adequacy` et `jury_fingerprint`
   (juges + grille). Refuse des configs notées par des jurys différents. `--h1 C` prend C au lieu de B
-  comme dérive à détecter (A reste la référence, A_bis le contrôle). Aucun appel à Alive :
+  comme dérive à détecter ; `--ref L --h0 L_bis` change la référence et son contrôle (défaut A et
+  A_bis), pour une campagne sur d'autres modèles. Aucun appel à Alive :
   `uv run python -m alive_drift.export_richter outputs/scores/<date-heure>`.
 - `data/meta_sample.jsonl` + `data/meta_reference.json` + `src/alive_drift/meta_sample.py` :
   l'échantillon figé de la méta-évaluation, tiré du fichier `oss_meta_eval` de HealthBench

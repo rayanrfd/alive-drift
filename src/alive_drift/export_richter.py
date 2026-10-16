@@ -4,8 +4,8 @@ drift-audit (experiments/phase3_clinical.py, experiments/fpr_permutation.py,
 enchaînés par pipeline/run_pipeline1.py) lit un dossier de trois fichiers,
 une ligne par question :
 
-    a_hb_clinical_adequacy.jsonl      <- A      (référence)
-    a_bis_hb_clinical_adequacy.jsonl  <- A_bis  (contrôle : rien n'a changé)
+    a_hb_clinical_adequacy.jsonl      <- A      (référence ; --ref pour une autre config)
+    a_bis_hb_clinical_adequacy.jsonl  <- A_bis  (contrôle : rien n'a changé ; --h0)
     b_hb_clinical_adequacy.jsonl      <- B      (dérive à détecter ; --h1 C pour un autre agent)
 
     {"id": 12, "clinical_adequacy": 0.75, "jury_fingerprint": "…", ...}
@@ -18,6 +18,8 @@ grille, et on refuse dès l'export des scores qui n'ont pas le même jury.
     uv run python -m alive_drift.export_richter outputs/scores/20261014-144523
 
     uv run python -m alive_drift.export_richter outputs/scores/jury3_C --h1 C
+
+    uv run python -m alive_drift.export_richter outputs/scores/luna --ref L --h0 L_bis --h1 M
 
 écrit outputs/richter/<nom du dossier de scores>/ (jamais par-dessus) et affiche la
 commande de Richter. Aucun appel à Alive. Aucun import de drift-audit : les
@@ -33,15 +35,18 @@ from pathlib import Path
 
 from alive_drift.files import append_line, read_records
 
-def names_for(h1: str = "B") -> dict[str, str]:
+def names_for(h1: str = "B", ref: str = "A", h0: str = "A_bis") -> dict[str, str]:
     """Nom de la config ici -> nom attendu par drift-audit (REF, H0, H1 de run_pipeline1).
 
-    A est toujours la référence et A_bis le contrôle ; `h1` est l'agent dont on
-    cherche la dérive (B par défaut, ou C...). Lève ValueError si h1 vaut A ou A_bis.
+    `ref` est la référence (A par défaut), `h0` sa copie de contrôle (A_bis), `h1`
+    l'agent dont on cherche la dérive (B par défaut, ou C...). Lève ValueError si
+    un nom est vide ou si deux des trois sont la même config.
     """
-    if not h1 or h1 in ("A", "A_bis"):
-        raise ValueError(f"--h1 {h1!r} : la dérive à détecter ne peut pas être A ni A_bis")
-    return {"A": "a_hb", "A_bis": "a_bis_hb", h1: "b_hb"}
+    if not ref or not h0 or ref == h0:
+        raise ValueError(f"--ref {ref!r} et --h0 {h0!r} : il faut deux configs différentes")
+    if not h1 or h1 in (ref, h0):
+        raise ValueError(f"--h1 {h1!r} : la dérive à détecter ne peut pas être {ref} ni {h0}")
+    return {ref: "a_hb", h0: "a_bis_hb", h1: "b_hb"}
 
 
 def jury_fingerprint(judges: list[str], grid: str) -> str:
@@ -118,13 +123,16 @@ def main(argv: list[str] | None = None) -> int:
                         help="défaut : outputs/richter/<nom du dossier de scores>")
     parser.add_argument("--h1", default="B",
                         help="l'agent dont on cherche la dérive, écrit en b_hb (défaut : B)")
+    parser.add_argument("--ref", default="A", help="la référence, écrite en a_hb (défaut : A)")
+    parser.add_argument("--h0", default="A_bis",
+                        help="la copie de contrôle de la référence, écrite en a_bis_hb (défaut : A_bis)")
     args = parser.parse_args(argv)
     scores_dir = Path(args.scores_dir)
     out_dir = Path(args.out_dir or Path("outputs") / "richter" / scores_dir.name)
     try:
         if out_dir.exists():
             raise ValueError(f"{out_dir} existe déjà : on n'écrit jamais par-dessus")
-        names = names_for(args.h1)
+        names = names_for(args.h1, args.ref, args.h0)
         rows_by_config = {c: read_scores(scores_dir / f"{c}.jsonl", c) for c in names}
         fingerprint, out = export_rows(rows_by_config, names)
     except (ValueError, OSError) as err:
