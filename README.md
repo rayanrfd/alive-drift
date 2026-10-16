@@ -103,6 +103,17 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
 - `data/healthbench.jsonl` : les 1000 questions (copie de `drift-audit/outputs/prompts/`).
   Essai réel : `uv run python -m alive_drift.client th-… dp-… <modèle> "<question>"`.
 
+## MedAgentBench (dossier `src/alive_drift/mab/`, tests dans `tests/mab/`)
+
+Faire passer à un agent déployé sur Alive les tâches de MedAgentBench (Stanford) : un
+faux dossier patient (serveur FHIR dans Docker) où l'agent cherche des données et
+prescrit. Séparé du reste (HealthBench, jury). Construit morceau par morceau, comme le reste.
+
+- `data/medagentbench/` : copie des 300 tâches et des 9 fonctions FHIR (voir `SOURCE.md`).
+- `src/alive_drift/mab/tasks.py` : lit les tâches et fabrique le premier message envoyé au
+  modèle, identique à celui de MedAgentBench. Aucun appel réseau :
+  `uv run python -m alive_drift.mab.tasks --task task5_1`.
+
 ## Du jury à Richter
 
 ```zsh
