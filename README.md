@@ -116,6 +116,10 @@ prescrit. Séparé du reste (HealthBench, jury). Construit morceau par morceau, 
 - `src/alive_drift/mab/actions.py` : lit la réponse du modèle à chaque tour (GET, POST,
   FINISH ou action invalide) et fabrique la phrase à lui renvoyer, exactement comme
   l'orchestrateur de MedAgentBench, bizarreries comprises (voir `tests/mab/test_actions.py`).
+- `src/alive_drift/mab/fhir.py` : interroge le serveur FHIR (Docker), comme MedAgentBench
+  (même bibliothèque `requests`, donc mêmes messages d'erreur envoyés au modèle). Si notre
+  serveur ne répond pas, tout s'arrête (`ServerUnreachable`) au lieu de compter un échec
+  de l'agent : `uv run python -m alive_drift.mab.fhir --check`.
 
 ## Du jury à Richter
 
