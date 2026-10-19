@@ -24,7 +24,7 @@ from alive_drift.client import make_client
 from alive_drift.config import Config
 from alive_drift.files import errors_path_for
 from alive_drift.grid import Criterion, grid_fingerprint
-from alive_drift.judge import prompt_fingerprint, system_prompt, user_message
+from alive_drift.judge import prompt_fingerprint, system_prompt, system_prompt_thread, user_message
 from alive_drift.jury import (
     check_judge, default_out_path, judge_responses, load_responses, load_votes, main,
 )
@@ -606,8 +606,11 @@ def test_les_juges_de_configs_ont_le_prompt_de_la_grille_de_travail():
     grid = load_working_grid(REPO / "data" / "criteria.json", REPO / "data" / "selection.json")
     names = [n for n in read_configs(REPO / "configs.json") if n.startswith("juge_")]
     assert names  # il y a au moins un juge
+    # juge habituel ou juge « dans le fil » (morceau 33) : l'un des deux prompts, pas un autre
+    thread_prompt = prompt_fingerprint(system_prompt_thread(grid))
     for name in names:
-        check_judge(load_config(REPO / "configs.json", name), grid)
+        judge = load_config(REPO / "configs.json", name)
+        check_judge(judge, grid, thread=judge.judge_prompt == thread_prompt)
 
 
 # --- Un juge sur un alias d'Alive ----------------------------------------------------
