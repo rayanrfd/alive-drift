@@ -59,8 +59,14 @@ def load_labels(path=LABELS_PATH, configs_path="configs.json") -> dict[str, dict
 
 
 def unlabeled(labels: dict, configs_path="configs.json") -> list[str]:
-    """Les configs de configs.json sans étiquette (signalées, pas refusées)."""
-    return sorted(set(read_configs(configs_path)) - set(labels))
+    """Les configs sans étiquette dont la room n'est pas déjà étiquetée (signalées, pas refusées).
+
+    Un juge « dans le fil » vit dans la room d'une campagne : cette room a déjà son titre,
+    il n'a pas besoin d'étiquette à lui.
+    """
+    labeled_rooms = {label["room"] for label in labels.values()}
+    return sorted(name for name, cfg in read_configs(configs_path).items()
+                  if name not in labels and cfg.get("room") not in labeled_rooms)
 
 
 def is_applied(room: dict, label: dict) -> bool:

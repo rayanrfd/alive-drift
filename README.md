@@ -91,6 +91,11 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   chaque config dans Alive (kind campagne / juge / sonde, rôle, modèle...), pour que les
   campagnes se lisent dans Alive. `PATCH /threads/{id}`, aucun run, gratuit.
   `uv run python -m alive_drift.rooms` (affiche) puis `--apply` (applique et relit).
+- Juge « dans le fil » (morceau 33) : un juge qui répond SOUS les réponses d'une campagne,
+  dans sa room. `deploy --judge-thread --in-room-of L --agent-name "Juge Haiku 5.5"` crée son
+  agent puis son déploiement dans la room de L ; son prompt système (`judge.system_prompt_thread`)
+  ne diffère du juge habituel que par le premier paragraphe, qui dit que la réponse a été écrite
+  par un AUTRE assistant. `rooms` n'exige pas d'étiquette pour ce juge (la room en a déjà une).
 - `data/meta_sample.jsonl` + `data/meta_reference.json` + `src/alive_drift/meta_sample.py` :
   l'échantillon figé de la méta-évaluation, tiré du fichier `oss_meta_eval` de HealthBench
   (réponses jugées par 2 à 4 médecins, critère par critère). Pour chacun des 8 critères :

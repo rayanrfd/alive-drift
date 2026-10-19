@@ -103,6 +103,34 @@ def system_prompt(grid: list[Criterion]) -> str:
     return "\n".join(parts)
 
 
+# --- Juge « dans le fil » (morceau 33) --------------------------------------------
+# Le juge répond SOUS la réponse, dans la room de la campagne : il reçoit la question et
+# la réponse comme une vraie conversation (user, puis assistant), puis THREAD_REQUEST.
+# Comme la réponse y apparaît à la place de l'assistant, le prompt système dit clairement
+# qu'elle a été écrite par un AUTRE assistant. Seul le premier paragraphe des consignes
+# change ; les règles et les critères sont identiques.
+
+_INTRO, _REST = INSTRUCTIONS.split("\n\n", 1)
+THREAD_INTRO = (
+    "You are a judge. In the conversation you receive, the first user message is a "
+    "health-related question, and the assistant message that follows is the response that "
+    "ANOTHER assistant gave to it. You did not write that response and you are not that "
+    "assistant: you only evaluate it. The last user message asks you to evaluate it. "
+    "Your job is to look at that question, that response, and a fixed list of rubric items, "
+    "then give a verdict for each rubric item.")
+THREAD_INSTRUCTIONS = THREAD_INTRO + "\n\n" + _REST
+THREAD_REQUEST = ("Evaluate the assistant response above against each rubric item in your "
+                  "instructions. Return only the json object.")
+
+
+def system_prompt_thread(grid: list[Criterion]) -> str:
+    """Comme system_prompt, pour un juge qui répond dans le fil (premier paragraphe changé)."""
+    parts = [THREAD_INSTRUCTIONS.format(n=len(grid)), "# Rubric items"]
+    for number, criterion in enumerate(grid, start=1):
+        parts.append(f'<rubric_item criterion_id="{number}">\n{criterion.text.strip()}\n</rubric_item>')
+    return "\n".join(parts)
+
+
 def prompt_fingerprint(prompt: str) -> str:
     """Empreinte courte d'un prompt système de juge.
 

@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from alive_drift.rooms import is_applied, load_labels, main
+from alive_drift.rooms import is_applied, load_labels, main, unlabeled
 
 
 def write(path, data):
@@ -147,7 +147,8 @@ def test_is_applied():
 def test_le_fichier_du_depot_etiquette_toutes_les_configs():
     labels = load_labels()            # data/room_labels.json et configs.json du dépôt
     configs = json.loads(open("configs.json", encoding="utf-8").read())
-    assert set(labels) == set(configs)
+    # chaque config a son étiquette, ou vit dans une room étiquetée (juge « dans le fil »)
+    assert unlabeled(labels) == []
     for name, label in labels.items():
         assert label["metadata"]["kind"] in ("campagne", "juge", "sonde")
         assert label["metadata"]["model"] == configs[name].get("served_model", configs[name]["model"])
