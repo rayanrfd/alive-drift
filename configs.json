@@ -154,5 +154,13 @@
     "reasoning_effort": "low",
     "judge_prompt": "c1f1524b9dec",
     "served_model": "anthropic/claude-haiku-5.5"
+  },
+  "juge_haiku_fil2_L": {
+    "room": "th-ai6FIal2CDNSJdQr",
+    "deployment": "dp-rkSfexMhJcXe12Hu",
+    "model": "~anthropic/claude-haiku-latest",
+    "reasoning_effort": "low",
+    "judge_prompt": "54f276947f1f",
+    "served_model": "anthropic/claude-haiku-5.5"
   }
 }
