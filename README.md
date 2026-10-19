@@ -96,11 +96,17 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   agent puis son déploiement dans la room de L ; son prompt système (`judge.system_prompt_thread`)
   ne diffère du juge habituel que par le premier paragraphe, qui dit que la réponse a été écrite
   par un AUTRE assistant. `rooms` n'exige pas d'étiquette pour ce juge (la room en a déjà une).
-- Jury « dans le fil » (morceau 34) : `jury --in-thread` envoie au juge la demande courte
-  `THREAD_REQUEST`, avec pour parent l'id du message de la réponse (fichier de `message_ids`).
-  Refuse avant tout run si une réponse n'a pas d'id de message ou n'est pas dans la room du juge ;
-  un run qu'Alive placerait ailleurs est rejeté. Votes au même format (+ `mode`, `parent_message_id`) :
-  `uv run python -m alive_drift.jury --judge juge_haiku_fil_L --responses outputs/L.jsonl --in-thread --limit 3`.
+- Jury « dans le fil » (morceaux 34 et 34bis) : `jury --in-thread` lance le juge SANS message
+  (`input: null`), avec pour parent l'id du message de la réponse (fichier de `message_ids`). Le
+  juge est déployé en `conversation: "transcript"` : Alive lui envoie la question et la réponse
+  comme un texte `<thread_events>` (`[User …]` / `[Agent …]`), et son vote s'affiche juste sous
+  la réponse, sans rien entre les deux. (En `"messages"`, le juge prend la réponse pour la sienne
+  et la prolonge ; avec un input, Alive crée un message intermédiaire : le juge du morceau 34,
+  `juge_haiku_fil_L`, est abandonné et refusé.) Refuse avant tout run si le juge n'est pas en
+  `transcript`, si une réponse n'a pas d'id de message ou n'est pas dans la room du juge ; un run
+  qui n'est pas DIRECTEMENT sous la réponse est rejeté. Votes au même format (+ `mode`,
+  `parent_message_id`). `--skip N` saute les N premières réponses :
+  `uv run python -m alive_drift.jury --judge juge_haiku_fil2_L --responses outputs/L.jsonl --in-thread --skip 4 --limit 3`.
 - `data/meta_sample.jsonl` + `data/meta_reference.json` + `src/alive_drift/meta_sample.py` :
   l'échantillon figé de la méta-évaluation, tiré du fichier `oss_meta_eval` de HealthBench
   (réponses jugées par 2 à 4 médecins, critère par critère). Pour chacun des 8 critères :

@@ -25,6 +25,9 @@ agent pour que ses messages s'affichent sous son nom :
     uv run python -m alive_drift.deploy --name juge_haiku_fil_L --model ~anthropic/claude-haiku-latest \\
         --served-model anthropic/claude-haiku-5.5 --reasoning-effort low \\
         --judge-thread --in-room-of L --agent-name "Juge Haiku 5.5"
+
+Ce juge est déployé en conversation = "transcript" (morceau 34bis) : Alive lui envoie la
+question et la réponse comme un texte à noter, et ses runs partent sans message (voir judge.py).
 """
 
 import argparse
@@ -53,6 +56,11 @@ RECIPE = {
     "skills": [],              # pas de skills hérités de l'agent
     "model_fallback": False,   # si le modèle échoue, le run échoue (pas de remplaçant)
 }
+# Les deux formats d'historique qu'Alive accepte (erreur 422 du 19/10 : 'transcript' or
+# 'messages'). "transcript" : la branche envoyée comme un texte <thread_events> dans un seul
+# message utilisateur ; seulement pour le juge « dans le fil ».
+CONVERSATIONS = ("messages", "transcript")
+THREAD_CONVERSATION = "transcript"
 
 
 class DeployError(Exception):
@@ -66,7 +74,8 @@ def short(value) -> str:
 
 
 def check_deployment(deployment: dict, *, deployment_id: str, agent: str, model: str,
-                     system_prompt: str, reasoning_effort: str) -> None:
+                     system_prompt: str, reasoning_effort: str,
+                     conversation: str = RECIPE["conversation"]) -> None:
     """Compare les réglages renvoyés par Alive à ceux demandés. Lève DeployError au premier écart.
 
     On vérifie aussi que c'est bien CE déploiement (id), lié à NOTRE agent,
@@ -85,7 +94,7 @@ def check_deployment(deployment: dict, *, deployment_id: str, agent: str, model:
         "system_prompt": (defaults.get("system_prompt"), system_prompt),
         "model_fallback": (defaults.get("model_fallback"), RECIPE["model_fallback"]),
         "platform_tools": (defaults.get("platform_tools"), RECIPE["platform_tools"]),
-        "conversation": (defaults.get("conversation"), RECIPE["conversation"]),
+        "conversation": (defaults.get("conversation"), conversation),
         "context": (defaults.get("context"), RECIPE["context"]),
     }
     for setting, (got, wanted) in expected.items():
@@ -97,7 +106,8 @@ def deploy(client: httpx.Client, configs_path, *, name: str, model: str, system_
            reasoning_effort: str = "none", workspace: str = DEFAULT_WORKSPACE,
            agent: str = DEFAULT_AGENT, judge: bool = False,
            served_model: str | None = None, room: str | None = None,
-           agent_name: str | None = None) -> Config:
+           agent_name: str | None = None,
+           conversation: str = RECIPE["conversation"]) -> Config:
     """Crée la room et le déploiement, vérifie les réglages, ajoute la config. Renvoie la config.
 
     judge=True : la config garde l'empreinte du prompt (champ judge_prompt)
@@ -107,8 +117,11 @@ def deploy(client: httpx.Client, configs_path, *, name: str, model: str, system_
     room : une room EXISTANTE (celle d'une campagne) au lieu d'en créer une.
     agent_name : crée d'abord un agent à ce nom (prompt vide, aliveness none) et
     l'utilise à la place de `agent` : ses messages s'affichent sous ce nom.
+    conversation : format de l'historique, "messages" (recette de mesure) ou
+    "transcript" (juge « dans le fil », THREAD_CONVERSATION).
 
-    Lève ValueError, sans rien créer, si le nom est vide ou déjà pris.
+    Lève ValueError, sans rien créer, si le nom est vide ou déjà pris, ou si
+    `conversation` n'est pas un format d'Alive.
     Lève DeployError si Alive refuse une étape ou si les réglages ne sont pas
     ceux demandés ; le message dit ce qui a déjà été créé. Dans ce cas la
     config n'est PAS ajoutée.
@@ -118,6 +131,8 @@ def deploy(client: httpx.Client, configs_path, *, name: str, model: str, system_
         raise ValueError(f"nom de config invalide : {name!r}")
     if Path(configs_path).exists() and name in read_configs(configs_path):
         raise ValueError(f"{configs_path} : la config {name!r} existe déjà")
+    if conversation not in CONVERSATIONS:
+        raise ValueError(f"conversation {conversation!r} : Alive n'accepte que {CONVERSATIONS}")
 
     created = "rien n'a été créé"
 
@@ -148,7 +163,8 @@ def deploy(client: httpx.Client, configs_path, *, name: str, model: str, system_
         created = (f"agent {agent} créé, " if agent_name else "") + f"room existante {room} inchangée"
 
     # 2. Le déploiement, avec la recette.
-    body = {"agent_id": agent, "model": model, "system_prompt": system_prompt, **RECIPE}
+    body = {"agent_id": agent, "model": model, "system_prompt": system_prompt, **RECIPE,
+            "conversation": conversation}
     deployment_id = call("POST", f"/threads/{room}/deployments", body)["id"]
     created = f"room {room} et déploiement {deployment_id} créés, mais config non ajoutée"
 
@@ -159,7 +175,8 @@ def deploy(client: httpx.Client, configs_path, *, name: str, model: str, system_
     # 4. Vérifier, puis seulement alors enregistrer.
     try:
         check_deployment(deployment, deployment_id=deployment_id, agent=agent, model=model,
-                         system_prompt=system_prompt, reasoning_effort=reasoning_effort)
+                         system_prompt=system_prompt, reasoning_effort=reasoning_effort,
+                         conversation=conversation)
     except DeployError as err:
         raise DeployError(f"{err} ; {created}") from None
     config = Config(name=name, room=room, deployment=deployment_id, model=model,
@@ -184,7 +201,8 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
                         help="un juge : prompt système = consignes + grille (voir judge.py)")
     prompt.add_argument("--judge-thread", action="store_true",
                         help="un juge « dans le fil » : comme --judge, mais il juge la réponse "
-                             "au-dessus de lui (à utiliser avec --in-room-of)")
+                             "au-dessus de lui (à utiliser avec --in-room-of) ; "
+                             "historique en conversation=transcript")
     parser.add_argument("--in-room-of", default=None, metavar="CONFIG",
                         help="crée le déploiement dans la room de cette config (ex. L)")
     parser.add_argument("--grid", default="data/criteria.json", help="les 34 critères, avec --judge")
@@ -227,7 +245,9 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
                             reasoning_effort=args.reasoning_effort,
                             workspace=args.workspace, agent=args.agent, judge=judge,
                             served_model=args.served_model, room=room,
-                            agent_name=args.agent_name)
+                            agent_name=args.agent_name,
+                            conversation=THREAD_CONVERSATION if args.judge_thread
+                            else RECIPE["conversation"])
         except (ValueError, OSError) as err:
             print(f"REFUS : {err}", file=sys.stderr)
             return 2
@@ -250,6 +270,8 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
               f"empreinte {config.judge_prompt}")
     else:
         print(f"  prompt système   : {config.system_prompt}")
+    conversation = THREAD_CONVERSATION if args.judge_thread else RECIPE["conversation"]
+    print(f"  historique       : {conversation}")
     print("  vérifié chez Alive : pas d'outils, pas de contexte, pas de fallback")
     return 0
 

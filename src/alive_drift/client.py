@@ -93,20 +93,23 @@ def make_client(token: str, transport: httpx.BaseTransport | None = None) -> htt
 
 
 def run_once(client: httpx.Client, room_id: str, deployment_id: str,
-             question: str, expected_model: str, expected_effort: str = "none",
+             question: str | None, expected_model: str, expected_effort: str = "none",
              served_model: str | None = None, parent_id: str | None = None) -> dict:
     """Envoie la question, renvoie le JSON d'Alive s'il passe check_run.
 
+    question : None = aucun message (juge « dans le fil » en conversation=transcript :
+    Alive ne crée pas de message utilisateur, le run répond directement sous parent_id).
     parent_id : None = conversation neuve ; sinon l'id du message (mg-...) sous lequel
-    répondre (juge « dans le fil »). Le run renvoyé doit alors être placé sous ce message,
-    sinon RunRejected.
+    répondre. Le run renvoyé doit alors avoir ce message pour parent DIRECT, sinon
+    RunRejected. (Avec un input, Alive crée d'abord un message utilisateur sous parent_id
+    et place le run sous ce message-là : parent direct différent, rejeté.)
 
     Lève httpx.HTTPStatusError si Alive répond une erreur (401, 502...),
     RunRejected si la réponse ne doit pas être gardée.
     """
     url = f"/threads/{room_id}/deployments/{deployment_id}/runs"
     body = {
-        "input": question,
+        "input": question,  # None : pas de message utilisateur
         "parent_id": parent_id,  # None : conversation neuve ; mg-... : réponse sous ce message
         "stream": False,    # une seule réponse JSON, pas un flux
     }
@@ -131,7 +134,7 @@ def is_retryable(err: Exception) -> bool:
 
 
 def run_with_retries(client: httpx.Client, room_id: str, deployment_id: str,
-                     question: str, expected_model: str, expected_effort: str = "none",
+                     question: str | None, expected_model: str, expected_effort: str = "none",
                      sleep=time.sleep, give_up=lambda: False,
                      served_model: str | None = None, parent_id: str | None = None) -> dict:
     """run_once, avec jusqu'à 5 essais si l'échec est passager.
