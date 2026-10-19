@@ -87,6 +87,10 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   à partir de son `execution_id` (`GET /executions/{id}`), pour qu'un juge puisse répondre
   sous la réponse dans Alive (jury « dans le fil »). Lectures seules, gratuit ; reprise.
   `uv run python -m alive_drift.message_ids outputs/L.jsonl` -> `outputs/L.messages.jsonl`.
+- `data/room_labels.json` + `src/alive_drift/rooms.py` : titre et métadonnées de la room de
+  chaque config dans Alive (kind campagne / juge / sonde, rôle, modèle...), pour que les
+  campagnes se lisent dans Alive. `PATCH /threads/{id}`, aucun run, gratuit.
+  `uv run python -m alive_drift.rooms` (affiche) puis `--apply` (applique et relit).
 - `data/meta_sample.jsonl` + `data/meta_reference.json` + `src/alive_drift/meta_sample.py` :
   l'échantillon figé de la méta-évaluation, tiré du fichier `oss_meta_eval` de HealthBench
   (réponses jugées par 2 à 4 médecins, critère par critère). Pour chacun des 8 critères :
