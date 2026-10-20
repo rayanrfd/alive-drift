@@ -230,5 +230,45 @@
       "config": "sonde",
       "model": "mistralai/mistral-small-24b-instruct-2501"
     }
+  },
+  "G54": {
+    "title": "HealthBench-1000 · G54 · gpt-5.4 · référence",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "campaign": "hb1000_gpt54_gpt55",
+      "n_questions": 1000,
+      "protocol": "pipeline/docs/protocol_p1_gpt54_gpt55.md",
+      "config": "G54",
+      "role": "reference",
+      "model": "openai/gpt-5.4"
+    }
+  },
+  "G54_bis": {
+    "title": "HealthBench-1000 · G54_bis · gpt-5.4 · contrôle (H0)",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "campaign": "hb1000_gpt54_gpt55",
+      "n_questions": 1000,
+      "protocol": "pipeline/docs/protocol_p1_gpt54_gpt55.md",
+      "config": "G54_bis",
+      "role": "controle",
+      "model": "openai/gpt-5.4"
+    }
+  },
+  "G55": {
+    "title": "HealthBench-1000 · G55 · gpt-5.5 · nouvelle version (H1)",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "campaign": "hb1000_gpt54_gpt55",
+      "n_questions": 1000,
+      "protocol": "pipeline/docs/protocol_p1_gpt54_gpt55.md",
+      "config": "G55",
+      "role": "derive",
+      "change": "model_version",
+      "model": "openai/gpt-5.5"
+    }
   }
 }
