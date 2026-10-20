@@ -16,6 +16,17 @@ jury. Les votes de chaque juge restent aussi notés à part (by_judge).
 
 lit outputs/jury/<config>.<juge>.jsonl, écrit outputs/scores/<date-heure>/<config>.jsonl
 (jamais par-dessus un calcul précédent) et affiche un résumé. Aucun appel à Alive.
+
+Juge « dans le fil » (morceau 36) : il a un déploiement par room, donc un nom par config
+(juge_haiku_fil2_L, juge_haiku_fil2_M...). Un nom de juge peut contenir {config}, remplacé
+par la config lue :
+
+    uv run python -m alive_drift.scores --judges "juge_haiku_fil2_{config}" --configs L L_bis M
+
+Les lignes de score gardent le nom avec {config} : pour export_richter, c'est le même jury
+pour toutes les configs. Avant d'écrire, on vérifie dans les votes que chaque juge a le même
+réglage (prompt, modèle servi, raisonnement, mode) dans toutes les configs : sinon ce ne
+serait pas le même instrument des deux côtés de Richter.
 """
 
 import argparse
@@ -59,6 +70,60 @@ def read_votes(path, grid: list[Criterion], judge: str) -> dict[str, dict]:
             raise ValueError(f"{where} : votes incomplets ou mal formés")
         votes[qid] = vote
     return votes
+
+
+CONFIG_PLACEHOLDER = "{config}"
+# Ce qui fait l'instrument d'un juge, lu dans chaque vote (votes.make_vote).
+INSTRUMENT_FIELDS = ("judge_prompt", "model", "reasoning_effort", "mode")
+
+
+def judge_name_for(judge: str, config: str) -> str:
+    """Le nom du juge pour `config` : {config} remplacé par la config, sinon inchangé.
+
+    Lève ValueError s'il reste une accolade (modèle de nom mal écrit, ex. {conf}).
+    """
+    name = judge.replace(CONFIG_PLACEHOLDER, config)
+    if "{" in name or "}" in name:
+        raise ValueError(f"nom de juge {judge!r} : seul {CONFIG_PLACEHOLDER} est accepté entre accolades")
+    return name
+
+
+def instrument_of(vote: dict) -> tuple:
+    """(prompt, modèle servi, raisonnement, mode) d'un vote ; None pour un champ absent."""
+    return tuple(vote.get(field) for field in INSTRUMENT_FIELDS)
+
+
+def judge_instruments(config: str, judges: list[str], grid: list[Criterion],
+                      jury_dir="outputs/jury") -> dict[str, tuple]:
+    """{juge (nom tel que donné): son instrument} pour `config`.
+
+    Lève ValueError si un juge n'a pas voté avec un seul et même réglage dans cette config.
+    """
+    instruments = {}
+    for judge in judges:
+        name = judge_name_for(judge, config)
+        votes = read_votes(Path(jury_dir) / f"{config}.{name}.jsonl", grid, name)
+        found = {instrument_of(v) for v in votes.values()}
+        if len(found) != 1:
+            raise ValueError(f"{config}.{name} : plusieurs réglages du juge dans les votes "
+                             f"{sorted(map(str, found))}")
+        instruments[judge] = found.pop()
+    return instruments
+
+
+def check_same_instruments(by_config: dict[str, dict[str, tuple]]) -> None:
+    """Lève ValueError si un juge n'a pas le même instrument dans toutes les configs.
+
+    `by_config` : {config: judge_instruments(config, ...)}. Avec {config}, ce sont des
+    déploiements différents (un par room) : ils doivent être le même juge.
+    """
+    judges = next(iter(by_config.values()), {})
+    for judge in judges:
+        seen = {config: inst[judge] for config, inst in by_config.items()}
+        if len(set(seen.values())) != 1:
+            detail = "; ".join(f"{c} : {dict(zip(INSTRUMENT_FIELDS, i))}" for c, i in seen.items())
+            raise ValueError(f"le juge {judge!r} n'est pas le même instrument d'une config à "
+                             f"l'autre ({detail})")
 
 
 def mean_or_none(values) -> float | None:
@@ -107,14 +172,19 @@ def score_config(config: str, judges: list[str], grid: list[Criterion],
                  jury_dir="outputs/jury") -> tuple[list[dict], int]:
     """(lignes de score de `config`, nombre de réponses écartées faute de tous les juges).
 
+    Un juge avec {config} : on lit le juge de la room de `config` (judge_name_for),
+    mais la ligne garde le nom tel que donné (même jury pour toutes les configs).
+
     Lève ValueError si la liste de juges est vide ou a un doublon, si un fichier
     contient des votes d'une autre config, ou si, pour une même question, les
     juges n'ont pas noté la même réponse. FileNotFoundError si un fichier manque.
     """
     if not judges or len(set(judges)) != len(judges):
         raise ValueError(f"liste de juges vide ou avec un doublon : {judges}")
-    per_judge = {j: read_votes(Path(jury_dir) / f"{config}.{j}.jsonl", grid, j)
-                 for j in judges}
+    per_judge = {}
+    for j in judges:
+        name = judge_name_for(j, config)   # j avec {config} : le juge de la room de `config`
+        per_judge[j] = read_votes(Path(jury_dir) / f"{config}.{name}.jsonl", grid, name)
     all_ids = set().union(*(set(v) for v in per_judge.values()))
     complete = [q for q in all_ids if all(q in votes for votes in per_judge.values())]
     rows = []
@@ -157,7 +227,8 @@ def summary(rows_by_config: dict[str, list[dict]], excluded: dict[str, int],
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Scores du jury à partir des votes. Aucun appel à Alive.")
-    parser.add_argument("--judges", nargs="+", required=True, help="ex. juge_haiku_latest juge_glm")
+    parser.add_argument("--judges", nargs="+", required=True,
+                        help='ex. juge_haiku_latest juge_glm ; "juge_x_{config}" = un juge par room')
     parser.add_argument("--configs", nargs="+", default=["A", "A_bis", "B"], help="défaut : A A_bis B")
     parser.add_argument("--jury-dir", default="outputs/jury", help="où sont les votes")
     parser.add_argument("--out-dir", default=None, help="défaut : outputs/scores/<date-heure>")
@@ -173,6 +244,8 @@ def main(argv: list[str] | None = None) -> int:
         for config in args.configs:
             rows_by_config[config], excluded[config] = score_config(config, args.judges, grid,
                                                                     args.jury_dir)
+        check_same_instruments({config: judge_instruments(config, args.judges, grid, args.jury_dir)
+                                for config in args.configs})
     except (ValueError, OSError, KeyError) as err:
         print(f"REFUS : {err}", file=sys.stderr)
         return 2

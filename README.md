@@ -76,6 +76,11 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   notée (sinon écartée et comptée). Écrit `outputs/scores/<date-heure>/<config>.jsonl`
   (jamais par-dessus un calcul) et affiche un résumé par config, par juge et par critère :
   `uv run python -m alive_drift.scores --judges juge_haiku_latest juge_glm juge_deepseek`.
+  Juge « dans le fil » (morceau 36) : un déploiement, donc un nom, par room ; `{config}` dans
+  le nom est remplacé par la config lue :
+  `uv run python -m alive_drift.scores --judges "juge_haiku_fil2_{config}" --configs L L_bis M`.
+  Refuse (sans rien écrire) si un juge n'a pas le même réglage (prompt, modèle servi,
+  raisonnement, mode) dans toutes les configs.
 - `src/alive_drift/export_richter.py` : écrit les scores au format que drift-audit lit pour
   le test de Richter : `a_hb` (A), `a_bis_hb` (A_bis), `b_hb` (B), fichiers
   `<nom>_clinical_adequacy.jsonl` avec `id`, `clinical_adequacy` et `jury_fingerprint`
