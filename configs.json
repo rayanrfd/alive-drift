@@ -162,5 +162,21 @@
     "reasoning_effort": "low",
     "judge_prompt": "54f276947f1f",
     "served_model": "anthropic/claude-haiku-5.5"
+  },
+  "juge_haiku_fil2_L_bis": {
+    "room": "th-8pYXGH8xQOalKReG",
+    "deployment": "dp-ddlRLTzo3O2PnAWo",
+    "model": "~anthropic/claude-haiku-latest",
+    "reasoning_effort": "low",
+    "judge_prompt": "54f276947f1f",
+    "served_model": "anthropic/claude-haiku-5.5"
+  },
+  "juge_haiku_fil2_M": {
+    "room": "th-RpciIJDWrLR53nan",
+    "deployment": "dp-7nate0BWKv8F0CIp",
+    "model": "~anthropic/claude-haiku-latest",
+    "reasoning_effort": "low",
+    "judge_prompt": "54f276947f1f",
+    "served_model": "anthropic/claude-haiku-5.5"
   }
 }
