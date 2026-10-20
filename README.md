@@ -92,6 +92,8 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   à partir de son `execution_id` (`GET /executions/{id}`), pour qu'un juge puisse répondre
   sous la réponse dans Alive (jury « dans le fil »). Lectures seules, gratuit ; reprise.
   `uv run python -m alive_drift.message_ids outputs/L.jsonl` -> `outputs/L.messages.jsonl`.
+  Depuis le morceau 37, `generate` enregistre directement ce `message_id` (champ `id` du run) :
+  `message_ids` ne sert plus que pour les réponses générées avant.
 - `data/room_labels.json` + `src/alive_drift/rooms.py` : titre et métadonnées de la room de
   chaque config dans Alive (kind campagne / juge / sonde, rôle, modèle...), pour que les
   campagnes se lisent dans Alive. `PATCH /threads/{id}`, aucun run, gratuit.
@@ -102,7 +104,8 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   ne diffère du juge habituel que par le premier paragraphe, qui dit que la réponse a été écrite
   par un AUTRE assistant. `rooms` n'exige pas d'étiquette pour ce juge (la room en a déjà une).
 - Jury « dans le fil » (morceaux 34 et 34bis) : `jury --in-thread` lance le juge SANS message
-  (`input: null`), avec pour parent l'id du message de la réponse (fichier de `message_ids`). Le
+  (`input: null`), avec pour parent l'id du message de la réponse (enregistré par `generate`, ou fichier de
+  `message_ids` pour les réponses plus anciennes). Le
   juge est déployé en `conversation: "transcript"` : Alive lui envoie la question et la réponse
   comme un texte `<thread_events>` (`[User …]` / `[Agent …]`), et son vote s'affiche juste sous
   la réponse, sans rien entre les deux. (En `"messages"`, le juge prend la réponse pour la sienne

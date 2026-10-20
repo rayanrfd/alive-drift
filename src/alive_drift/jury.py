@@ -30,7 +30,8 @@ Exemple sur 3 réponses (3 runs payants) :
 Jury « dans le fil » (morceaux 34 et 34bis) : le juge répond SOUS chaque réponse, dans la
 room de la campagne (juge créé par deploy --judge-thread --in-room-of, en
 conversation=transcript). Le run part SANS message (input null), avec pour parent l'id du
-message de la réponse (fichier écrit par message_ids, défaut outputs/<config>.messages.jsonl) :
+message de la réponse : enregistré par generate depuis le morceau 37 ; pour les réponses plus
+anciennes, lu dans le fichier écrit par message_ids (défaut outputs/<config>.messages.jsonl) :
 Alive envoie au juge la question et la réponse comme un texte, et son vote s'affiche juste
 sous la réponse. --skip N saute les N premières réponses :
 
@@ -159,6 +160,34 @@ def load_thread_parents(path, responses: list[dict], room: str) -> dict[str, str
     return parents
 
 
+def thread_parents(responses: list[dict], room: str, messages_path) -> dict[str, str]:
+    """{question: id du message de la réponse} pour le jury « dans le fil ».
+
+    Une réponse qui a son message_id (generate, depuis le morceau 37) le donne directement.
+    Pour les autres (campagnes plus anciennes), on lit le fichier de message_ids : il n'est
+    donc nécessaire que s'il reste des réponses sans message_id.
+
+    Lève ValueError si un message_id n'est pas un id de message ("mg-...") ou si la réponse
+    n'est pas dans la room du juge (Alive refuserait le parent) ; FileNotFoundError (via
+    load_thread_parents) s'il faut le fichier et qu'il manque.
+    """
+    parents, missing = {}, []
+    for response in responses:
+        message_id = response.get("message_id")
+        if message_id is None:
+            missing.append(response)
+            continue
+        if not isinstance(message_id, str) or not message_id.startswith("mg-"):
+            raise ValueError(f"réponse {response['id']!r} : message_id {message_id!r} invalide")
+        if response.get("room_id") != room:
+            raise ValueError(f"réponse {response['id']!r} dans la room {response.get('room_id')!r}, "
+                             f"le juge est dans {room!r}")
+        parents[response["id"]] = message_id
+    if missing:
+        parents.update(load_thread_parents(messages_path, missing, room))
+    return parents
+
+
 def judge_responses(client: httpx.Client, responses: list[dict], judge: Config,
                     grid: list[Criterion], *, out_path, limit: int | None = None,
                     skip: int = 0, workers: int = 1, sleep=None,
@@ -262,7 +291,8 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     parser.add_argument("--in-thread", action="store_true",
                         help="jury « dans le fil » : le juge répond sous chaque réponse (voir message_ids)")
     parser.add_argument("--messages", default=None,
-                        help="avec --in-thread : ids des messages (défaut : <réponses>.messages.jsonl)")
+                        help="avec --in-thread, pour des réponses sans message_id : fichier de "
+                             "message_ids (défaut : <réponses>.messages.jsonl)")
     args = parser.parse_args(argv)
     out_path = Path(args.out) if args.out else default_out_path(args.responses, args.judge)
 
@@ -278,8 +308,8 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
             responses = load_responses(args.responses, load_questions(args.questions))
             parents = None
             if args.in_thread:
-                parents = load_thread_parents(args.messages or messages_path_for(args.responses),
-                                              responses, judge.room)
+                parents = thread_parents(responses, judge.room,
+                                         args.messages or messages_path_for(args.responses))
             n_ok, n_failed = judge_responses(client, responses, judge, grid, out_path=out_path,
                                              limit=args.limit, skip=args.skip,
                                              workers=args.workers, sleep=sleep,

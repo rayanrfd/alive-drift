@@ -19,7 +19,9 @@ from alive_drift.grid import Criterion, grid_fingerprint
 def load_responses(path, questions: list[dict]) -> list[dict]:
     """Les réponses d'un fichier de génération, dans l'ordre du fichier de QUESTIONS.
 
-    Renvoie une liste de {"id", "config", "question", "response", "execution_id"}.
+    Renvoie une liste de {"id", "config", "question", "response", "execution_id"}, plus
+    "message_id" et "room_id" si la ligne a un message_id (réponses générées depuis le
+    morceau 37 : le juge « dans le fil » s'en sert comme parent).
     L'ordre des questions (et non celui du fichier, qui dépend de l'arrivée des
     réponses) garantit que --limit 3 note les 3 mêmes questions pour A, A_bis et B.
 
@@ -54,6 +56,8 @@ def load_responses(path, questions: list[dict]) -> list[dict]:
                 raise ValueError(f"{where} : config {row['config']!r}, attendu {config!r}")
             by_id[qid] = {"id": qid, "config": row["config"], "question": row["question"],
                           "response": row["response"], "execution_id": row["execution_id"]}
+            if row.get("message_id") is not None:
+                by_id[qid].update(message_id=row["message_id"], room_id=row.get("room_id"))
     if not by_id:
         raise ValueError(f"{path} : aucune réponse")
     return [by_id[q["id"]] for q in questions if q["id"] in by_id]
