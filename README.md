@@ -113,7 +113,8 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   `juge_haiku_fil_L`, est abandonné et refusé.) Refuse avant tout run si le juge n'est pas en
   `transcript`, si une réponse n'a pas d'id de message ou n'est pas dans la room du juge ; un run
   qui n'est pas DIRECTEMENT sous la réponse est rejeté. Votes au même format (+ `mode`,
-  `parent_message_id`). `--skip N` saute les N premières réponses :
+  `parent_message_id`, vérifiés à la reprise : un fichier ne mélange jamais votes habituels et votes
+  dans le fil). `--skip N` saute les N premières réponses :
   `uv run python -m alive_drift.jury --judge juge_haiku_fil2_L --responses outputs/L.jsonl --in-thread --skip 4 --limit 3`.
 - `data/meta_sample.jsonl` + `data/meta_reference.json` + `src/alive_drift/meta_sample.py` :
   l'échantillon figé de la méta-évaluation, tiré du fichier `oss_meta_eval` de HealthBench

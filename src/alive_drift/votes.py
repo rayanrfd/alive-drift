@@ -111,13 +111,17 @@ def make_vote(response: dict, run: dict, judge: Config, grid: list[Criterion]) -
 # --- Reprise ------------------------------------------------------------------------------
 
 def load_votes(out_path: Path, responses: list[dict], judge: Config,
-               grid: list[Criterion]) -> tuple[set[str], set[str]]:
+               grid: list[Criterion],
+               parents: dict[str, str] | None = None) -> tuple[set[str], set[str]]:
     """Ce qui est déjà noté dans out_path : (ids des questions, execution_id des runs de juge).
 
     Deux ensembles vides si le fichier n'existe pas.
     Lève ValueError à la première ligne qui n'est pas de CETTE campagne : autre
     juge, autre déploiement, autre grille, autre prompt, autre config notée,
     réponse qui n'est plus celle du fichier de réponses, votes incomplets.
+    `parents` (jury « dans le fil », morceau 38) : chaque vote doit avoir mode "thread" et
+    pour parent_message_id le parent de sa question. Sans `parents` (jury habituel), aucun
+    vote ne doit avoir de mode : les deux sortes de votes ne se mélangent jamais.
     """
     response_by_id = {r["id"]: r for r in responses}
     names = [criterion.name for criterion in grid]
@@ -143,6 +147,12 @@ def load_votes(out_path: Path, responses: list[dict], judge: Config,
             raise ValueError(f"{where} : la réponse à la question {qid!r} n'est plus la même")
         if qid in done:
             raise ValueError(f"{where} : question {qid!r} en double")
+        mode = "thread" if parents is not None else None
+        if vote.get("mode") != mode:
+            raise ValueError(f"{where} : mode {vote.get('mode')!r}, attendu {mode!r}")
+        if parents is not None and vote.get("parent_message_id") != parents.get(qid):
+            raise ValueError(f"{where} : vote placé sous {vote.get('parent_message_id')!r}, "
+                             f"la réponse est {parents.get(qid)!r}")
         verdicts = vote.get("verdicts")
         if (not isinstance(verdicts, dict) or list(verdicts) != names
                 or any(type(met) not in (bool, type(None)) for met in verdicts.values())):

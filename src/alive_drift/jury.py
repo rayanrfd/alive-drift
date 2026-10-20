@@ -221,7 +221,7 @@ def judge_responses(client: httpx.Client, responses: list[dict], judge: Config,
 
     # --- 2. Ce qui reste à noter (reprise) ----------------------------------------
     out_path = Path(out_path)
-    done, executions = load_votes(out_path, responses, judge, grid)
+    done, executions = load_votes(out_path, responses, judge, grid, parents)
     todo = [r for r in responses[skip:][:limit] if r["id"] not in done]
     if done:
         print(f"reprise : {len(done)} réponses déjà notées dans {out_path}, "

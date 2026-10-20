@@ -108,7 +108,16 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
     if not token:
         print(TOKEN_HELP, file=sys.stderr)
         return 2
-    changed = 0
+    changed, changed_names = 0, []
+
+    def stop(message: str) -> int:
+        # Pas de retour en arrière : les rooms déjà modifiées le restent. Relancer la même
+        # commande termine les autres (les rooms déjà à jour sont sautées).
+        print(f"ARRÊT : {message}", file=sys.stderr)
+        print(f"déjà modifiées à ce lancement : {', '.join(changed_names) or 'aucune'} ; "
+              "relancer la commande pour finir les autres", file=sys.stderr)
+        return 2
+
     with make_client(token, transport) as client:
         for name, label in labels.items():
             path = f"/threads/{label['room']}"
@@ -122,14 +131,12 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
                     continue
                 call(client, "PATCH", path, {"title": label["title"], "metadata": label["metadata"]}, sleep)
                 if not is_applied(call(client, "GET", path, sleep=sleep), label):
-                    print(f"ARRÊT : {name} : la room relue n'a pas le titre ou les métadonnées "
-                          f"demandés", file=sys.stderr)
-                    return 2
+                    return stop(f"{name} : la room relue n'a pas le titre ou les métadonnées demandés")
                 changed += 1
+                changed_names.append(name)
             except (httpx.HTTPStatusError, httpx.TransportError) as err:
                 detail = alive_detail(err)
-                print(f"ARRÊT : {name} : {err}" + (f" ({detail})" if detail else ""), file=sys.stderr)
-                return 2
+                return stop(f"{name} : {err}" + (f" ({detail})" if detail else ""))
     if missing:
         print(f"sans étiquette : {', '.join(missing)}")
     print(f"{changed} rooms modifiées" if args.apply else "rien n'a été modifié (ajouter --apply)")

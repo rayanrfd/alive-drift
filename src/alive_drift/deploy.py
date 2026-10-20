@@ -224,6 +224,9 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
         if judge:
             make_prompt = judge_thread_system_prompt if args.judge_thread else judge_system_prompt
             system_prompt = make_prompt(load_working_grid(args.grid, args.selection))
+        if args.judge_thread and args.in_room_of is None:
+            raise ValueError("--judge-thread demande --in-room-of : un juge dans le fil répond sous "
+                             "les réponses d'une campagne, il doit vivre dans sa room")
         if args.in_room_of is not None:
             configs = read_configs(args.configs) if Path(args.configs).exists() else {}
             if args.in_room_of not in configs:
