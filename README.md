@@ -76,6 +76,11 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   notée (sinon écartée et comptée). Écrit `outputs/scores/<date-heure>/<config>.jsonl`
   (jamais par-dessus un calcul) et affiche un résumé par config, par juge et par critère :
   `uv run python -m alive_drift.scores --judges juge_haiku_latest juge_glm juge_deepseek`.
+  Juge « dans le fil » (morceau 36) : un déploiement, donc un nom, par room ; `{config}` dans
+  le nom est remplacé par la config lue :
+  `uv run python -m alive_drift.scores --judges "juge_haiku_fil2_{config}" --configs L L_bis M`.
+  Refuse (sans rien écrire) si un juge n'a pas le même réglage (prompt, modèle servi,
+  raisonnement, mode) dans toutes les configs.
 - `src/alive_drift/export_richter.py` : écrit les scores au format que drift-audit lit pour
   le test de Richter : `a_hb` (A), `a_bis_hb` (A_bis), `b_hb` (B), fichiers
   `<nom>_clinical_adequacy.jsonl` avec `id`, `clinical_adequacy` et `jury_fingerprint`
@@ -83,6 +88,34 @@ client (plus grosse) reste sur la branche `step1-alive-client`, comme référenc
   comme dérive à détecter ; `--ref L --h0 L_bis` change la référence et son contrôle (défaut A et
   A_bis), pour une campagne sur d'autres modèles. Aucun appel à Alive :
   `uv run python -m alive_drift.export_richter outputs/scores/<date-heure>`.
+- `src/alive_drift/message_ids.py` : retrouve l'id du message (`mg-...`) de chaque réponse
+  à partir de son `execution_id` (`GET /executions/{id}`), pour qu'un juge puisse répondre
+  sous la réponse dans Alive (jury « dans le fil »). Lectures seules, gratuit ; reprise.
+  `uv run python -m alive_drift.message_ids outputs/L.jsonl` -> `outputs/L.messages.jsonl`.
+  Depuis le morceau 37, `generate` enregistre directement ce `message_id` (champ `id` du run) :
+  `message_ids` ne sert plus que pour les réponses générées avant.
+- `data/room_labels.json` + `src/alive_drift/rooms.py` : titre et métadonnées de la room de
+  chaque config dans Alive (kind campagne / juge / sonde, rôle, modèle...), pour que les
+  campagnes se lisent dans Alive. `PATCH /threads/{id}`, aucun run, gratuit.
+  `uv run python -m alive_drift.rooms` (affiche) puis `--apply` (applique et relit).
+- Juge « dans le fil » (morceau 33) : un juge qui répond SOUS les réponses d'une campagne,
+  dans sa room. `deploy --judge-thread --in-room-of L --agent-name "Juge Haiku 5.5"` crée son
+  agent puis son déploiement dans la room de L ; son prompt système (`judge.system_prompt_thread`)
+  ne diffère du juge habituel que par le premier paragraphe, qui dit que la réponse a été écrite
+  par un AUTRE assistant. `rooms` n'exige pas d'étiquette pour ce juge (la room en a déjà une).
+- Jury « dans le fil » (morceaux 34 et 34bis) : `jury --in-thread` lance le juge SANS message
+  (`input: null`), avec pour parent l'id du message de la réponse (enregistré par `generate`, ou fichier de
+  `message_ids` pour les réponses plus anciennes). Le
+  juge est déployé en `conversation: "transcript"` : Alive lui envoie la question et la réponse
+  comme un texte `<thread_events>` (`[User …]` / `[Agent …]`), et son vote s'affiche juste sous
+  la réponse, sans rien entre les deux. (En `"messages"`, le juge prend la réponse pour la sienne
+  et la prolonge ; avec un input, Alive crée un message intermédiaire : le juge du morceau 34,
+  `juge_haiku_fil_L`, est abandonné et refusé.) Refuse avant tout run si le juge n'est pas en
+  `transcript`, si une réponse n'a pas d'id de message ou n'est pas dans la room du juge ; un run
+  qui n'est pas DIRECTEMENT sous la réponse est rejeté. Votes au même format (+ `mode`,
+  `parent_message_id`, vérifiés à la reprise : un fichier ne mélange jamais votes habituels et votes
+  dans le fil). `--skip N` saute les N premières réponses :
+  `uv run python -m alive_drift.jury --judge juge_haiku_fil2_L --responses outputs/L.jsonl --in-thread --skip 4 --limit 3`.
 - `data/meta_sample.jsonl` + `data/meta_reference.json` + `src/alive_drift/meta_sample.py` :
   l'échantillon figé de la méta-évaluation, tiré du fichier `oss_meta_eval` de HealthBench
   (réponses jugées par 2 à 4 médecins, critère par critère). Pour chacun des 8 critères :

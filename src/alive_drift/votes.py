@@ -19,7 +19,9 @@ from alive_drift.grid import Criterion, grid_fingerprint
 def load_responses(path, questions: list[dict]) -> list[dict]:
     """Les réponses d'un fichier de génération, dans l'ordre du fichier de QUESTIONS.
 
-    Renvoie une liste de {"id", "config", "question", "response", "execution_id"}.
+    Renvoie une liste de {"id", "config", "question", "response", "execution_id"}, plus
+    "message_id" et "room_id" si la ligne a un message_id (réponses générées depuis le
+    morceau 37 : le juge « dans le fil » s'en sert comme parent).
     L'ordre des questions (et non celui du fichier, qui dépend de l'arrivée des
     réponses) garantit que --limit 3 note les 3 mêmes questions pour A, A_bis et B.
 
@@ -54,6 +56,8 @@ def load_responses(path, questions: list[dict]) -> list[dict]:
                 raise ValueError(f"{where} : config {row['config']!r}, attendu {config!r}")
             by_id[qid] = {"id": qid, "config": row["config"], "question": row["question"],
                           "response": row["response"], "execution_id": row["execution_id"]}
+            if row.get("message_id") is not None:
+                by_id[qid].update(message_id=row["message_id"], room_id=row.get("room_id"))
     if not by_id:
         raise ValueError(f"{path} : aucune réponse")
     return [by_id[q["id"]] for q in questions if q["id"] in by_id]
@@ -107,13 +111,17 @@ def make_vote(response: dict, run: dict, judge: Config, grid: list[Criterion]) -
 # --- Reprise ------------------------------------------------------------------------------
 
 def load_votes(out_path: Path, responses: list[dict], judge: Config,
-               grid: list[Criterion]) -> tuple[set[str], set[str]]:
+               grid: list[Criterion],
+               parents: dict[str, str] | None = None) -> tuple[set[str], set[str]]:
     """Ce qui est déjà noté dans out_path : (ids des questions, execution_id des runs de juge).
 
     Deux ensembles vides si le fichier n'existe pas.
     Lève ValueError à la première ligne qui n'est pas de CETTE campagne : autre
     juge, autre déploiement, autre grille, autre prompt, autre config notée,
     réponse qui n'est plus celle du fichier de réponses, votes incomplets.
+    `parents` (jury « dans le fil », morceau 38) : chaque vote doit avoir mode "thread" et
+    pour parent_message_id le parent de sa question. Sans `parents` (jury habituel), aucun
+    vote ne doit avoir de mode : les deux sortes de votes ne se mélangent jamais.
     """
     response_by_id = {r["id"]: r for r in responses}
     names = [criterion.name for criterion in grid]
@@ -139,6 +147,12 @@ def load_votes(out_path: Path, responses: list[dict], judge: Config,
             raise ValueError(f"{where} : la réponse à la question {qid!r} n'est plus la même")
         if qid in done:
             raise ValueError(f"{where} : question {qid!r} en double")
+        mode = "thread" if parents is not None else None
+        if vote.get("mode") != mode:
+            raise ValueError(f"{where} : mode {vote.get('mode')!r}, attendu {mode!r}")
+        if parents is not None and vote.get("parent_message_id") != parents.get(qid):
+            raise ValueError(f"{where} : vote placé sous {vote.get('parent_message_id')!r}, "
+                             f"la réponse est {parents.get(qid)!r}")
         verdicts = vote.get("verdicts")
         if (not isinstance(verdicts, dict) or list(verdicts) != names
                 or any(type(met) not in (bool, type(None)) for met in verdicts.values())):

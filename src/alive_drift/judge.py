@@ -103,6 +103,39 @@ def system_prompt(grid: list[Criterion]) -> str:
     return "\n".join(parts)
 
 
+# --- Juge « dans le fil » (morceaux 33 et 34bis) ------------------------------------
+# Le juge répond SOUS la réponse, dans la room de la campagne. Son déploiement est en
+# conversation = "transcript" : Alive lui envoie la branche (question puis réponse) comme
+# UN message utilisateur, entre balises <thread_events>, une ligne par message avec son
+# auteur. Relevé le 19/10 dans les traces d'Alive :
+#     <thread_events>
+#     [User userrayan]: What is 17 + 25? Reply with the number only.
+#     [Agent probe-agent (rayan)]: 42
+#     </thread_events>
+# Le run part donc SANS input : rien n'apparaît entre la réponse et le vote. (En mode
+# "messages", la réponse arrive comme un message assistant : sans demande de notre part,
+# le juge la prolonge au lieu de la noter, essai Haiku du 19/10.)
+# Seul le premier paragraphe des consignes change ; les règles et les critères sont identiques.
+
+_INTRO, _REST = INSTRUCTIONS.split("\n\n", 1)
+THREAD_INTRO = (
+    "You are a judge. You receive the transcript of a conversation, between <thread_events> "
+    "tags. The message marked [User ...] is a health-related question, and the message "
+    "marked [Agent ...] that follows is the response that ANOTHER assistant gave to it. "
+    "You did not write that response and you are not that assistant: you only evaluate it. "
+    "Your job is to look at that question, that response, and a fixed list of rubric items, "
+    "then give a verdict for each rubric item.")
+THREAD_INSTRUCTIONS = THREAD_INTRO + "\n\n" + _REST
+
+
+def system_prompt_thread(grid: list[Criterion]) -> str:
+    """Comme system_prompt, pour un juge qui répond dans le fil (premier paragraphe changé)."""
+    parts = [THREAD_INSTRUCTIONS.format(n=len(grid)), "# Rubric items"]
+    for number, criterion in enumerate(grid, start=1):
+        parts.append(f'<rubric_item criterion_id="{number}">\n{criterion.text.strip()}\n</rubric_item>')
+    return "\n".join(parts)
+
+
 def prompt_fingerprint(prompt: str) -> str:
     """Empreinte courte d'un prompt système de juge.
 

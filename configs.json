@@ -146,5 +146,82 @@
     "model": "openai/gpt-5.4-mini",
     "reasoning_effort": "none",
     "system_prompt": "You are a helpful assistant."
+  },
+  "juge_haiku_fil_L": {
+    "room": "th-ai6FIal2CDNSJdQr",
+    "deployment": "dp-YVeEShwAjLHY1cpj",
+    "model": "~anthropic/claude-haiku-latest",
+    "reasoning_effort": "low",
+    "judge_prompt": "c1f1524b9dec",
+    "served_model": "anthropic/claude-haiku-5.5"
+  },
+  "juge_haiku_fil2_L": {
+    "room": "th-ai6FIal2CDNSJdQr",
+    "deployment": "dp-rkSfexMhJcXe12Hu",
+    "model": "~anthropic/claude-haiku-latest",
+    "reasoning_effort": "low",
+    "judge_prompt": "54f276947f1f",
+    "served_model": "anthropic/claude-haiku-5.5"
+  },
+  "juge_haiku_fil2_L_bis": {
+    "room": "th-8pYXGH8xQOalKReG",
+    "deployment": "dp-ddlRLTzo3O2PnAWo",
+    "model": "~anthropic/claude-haiku-latest",
+    "reasoning_effort": "low",
+    "judge_prompt": "54f276947f1f",
+    "served_model": "anthropic/claude-haiku-5.5"
+  },
+  "juge_haiku_fil2_M": {
+    "room": "th-RpciIJDWrLR53nan",
+    "deployment": "dp-7nate0BWKv8F0CIp",
+    "model": "~anthropic/claude-haiku-latest",
+    "reasoning_effort": "low",
+    "judge_prompt": "54f276947f1f",
+    "served_model": "anthropic/claude-haiku-5.5"
+  },
+  "G54": {
+    "room": "th-CWikqvJ7Dg8e1XCq",
+    "deployment": "dp-aSlmkUF3GroVL4Ft",
+    "model": "openai/gpt-5.4",
+    "reasoning_effort": "none",
+    "system_prompt": "You are a helpful assistant."
+  },
+  "G54_bis": {
+    "room": "th-cjEtaEuJpSYjBthp",
+    "deployment": "dp-C0lonGDWMqV10ff6",
+    "model": "openai/gpt-5.4",
+    "reasoning_effort": "none",
+    "system_prompt": "You are a helpful assistant."
+  },
+  "G55": {
+    "room": "th-S5dYxnRnYiCErhdl",
+    "deployment": "dp-hSyHVOG1Q3d6Y6DJ",
+    "model": "openai/gpt-5.5",
+    "reasoning_effort": "none",
+    "system_prompt": "You are a helpful assistant."
+  },
+  "juge_haiku_fil2_G54": {
+    "room": "th-CWikqvJ7Dg8e1XCq",
+    "deployment": "dp-ftesJYtIPp84O5W9",
+    "model": "~anthropic/claude-haiku-latest",
+    "reasoning_effort": "low",
+    "judge_prompt": "54f276947f1f",
+    "served_model": "anthropic/claude-haiku-5.5"
+  },
+  "juge_haiku_fil2_G54_bis": {
+    "room": "th-cjEtaEuJpSYjBthp",
+    "deployment": "dp-fxTnkW6Ff9bLEBVS",
+    "model": "~anthropic/claude-haiku-latest",
+    "reasoning_effort": "low",
+    "judge_prompt": "54f276947f1f",
+    "served_model": "anthropic/claude-haiku-5.5"
+  },
+  "juge_haiku_fil2_G55": {
+    "room": "th-S5dYxnRnYiCErhdl",
+    "deployment": "dp-4dLY3MA16U8Vwffn",
+    "model": "~anthropic/claude-haiku-latest",
+    "reasoning_effort": "low",
+    "judge_prompt": "54f276947f1f",
+    "served_model": "anthropic/claude-haiku-5.5"
   }
 }

@@ -53,6 +53,16 @@ def load_questions(path) -> list[dict]:
 
 # --- Écriture ----------------------------------------------------------------
 
+def message_id_of(run: dict) -> str | None:
+    """L'id du message de la réponse dans la room (champ `id` du run, "mg-..."), ou None.
+
+    C'est le parent sous lequel le juge « dans le fil » répondra (morceau 37) : on le garde
+    dès la génération au lieu de le rechercher après coup avec message_ids.
+    """
+    value = run.get("id")
+    return value if isinstance(value, str) and value.startswith("mg-") else None
+
+
 def make_record(question: dict, run: dict, config: Config) -> dict:
     """La ligne enregistrée pour une réponse gardée.
 
@@ -73,6 +83,7 @@ def make_record(question: dict, run: dict, config: Config) -> dict:
         "model": served["model"],
         "provider": served["provider"],
         "execution_id": run["execution_id"],
+        "message_id": message_id_of(run),
         "prompt_tokens": tokens.get("prompt"),
         "completion_tokens": tokens.get("completion"),
         "reasoning_tokens": tokens.get("reasoning"),

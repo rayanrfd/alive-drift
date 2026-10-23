@@ -1,0 +1,274 @@
+{
+  "_lisez_moi": "Titres et métadonnées des rooms Alive (morceau 32). Appliqués par python -m alive_drift.rooms --apply. Valeurs de metadata : textes, nombres ou booléens seulement (cherchables dans Alive).",
+  "A": {
+    "title": "HealthBench · A · gpt-4.1-mini · référence",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "config": "A",
+      "role": "reference",
+      "model": "openai/gpt-4.1-mini",
+      "n_questions": 1000
+    }
+  },
+  "A_bis": {
+    "title": "HealthBench · A_bis · gpt-4.1-mini · contrôle (copie de A)",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "config": "A_bis",
+      "role": "controle",
+      "model": "openai/gpt-4.1-mini",
+      "n_questions": 1000
+    }
+  },
+  "B": {
+    "title": "HealthBench · B · gpt-4.1-mini · dérive : consigne anti-urgences",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "config": "B",
+      "role": "derive",
+      "change": "prompt",
+      "model": "openai/gpt-4.1-mini",
+      "n_questions": 1000
+    }
+  },
+  "C": {
+    "title": "HealthBench · C · gpt-5-mini · dérive : changement de modèle",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "config": "C",
+      "role": "derive",
+      "change": "model",
+      "model": "openai/gpt-5-mini",
+      "n_questions": 1000
+    }
+  },
+  "L": {
+    "title": "HealthBench-500 · L · gpt-5.6-luna · référence",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "config": "L",
+      "role": "reference",
+      "model": "openai/gpt-5.6-luna",
+      "n_questions": 500
+    }
+  },
+  "L_bis": {
+    "title": "HealthBench-500 · L_bis · gpt-5.6-luna · contrôle (copie de L)",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "config": "L_bis",
+      "role": "controle",
+      "model": "openai/gpt-5.6-luna",
+      "n_questions": 500
+    }
+  },
+  "M": {
+    "title": "HealthBench-500 · M · gpt-5.4-mini · dérive : changement de modèle",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "config": "M",
+      "role": "derive",
+      "change": "model",
+      "model": "openai/gpt-5.4-mini",
+      "n_questions": 500
+    }
+  },
+  "juge_haiku_latest": {
+    "title": "Juge · Haiku 5.5 · jury officiel",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_haiku_latest",
+      "model": "anthropic/claude-haiku-5.5",
+      "statut": "officiel",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_deepseek": {
+    "title": "Juge · DeepSeek V4.1 Flash · jury officiel",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_deepseek",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "statut": "officiel",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_glm": {
+    "title": "Juge · GLM 5.3 Flash · retiré (fournisseur instable)",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_glm",
+      "model": "z-ai/glm-5.3-flash",
+      "statut": "retire",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_sonnet": {
+    "title": "Juge · Sonnet 5.5 · essai de sélection",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_sonnet",
+      "model": "anthropic/claude-sonnet-5.5",
+      "statut": "essai",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_gemini": {
+    "title": "Juge · Gemini 3.8 Flash · essai de sélection",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_gemini",
+      "model": "google/gemini-3.8-flash",
+      "statut": "essai",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_qwen": {
+    "title": "Juge · Qwen 3.8 Flash · essai de sélection",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_qwen",
+      "model": "qwen/qwen3.8-flash",
+      "statut": "essai",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_gemini_lite": {
+    "title": "Juge · Gemini 3.1 Flash Lite · essai de sélection",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_gemini_lite",
+      "model": "google/gemini-3.1-flash-lite",
+      "statut": "essai",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_haiku": {
+    "title": "Juge · Haiku 4.5 · essai de sélection",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_haiku",
+      "model": "anthropic/claude-haiku-4.5",
+      "statut": "essai",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_grok": {
+    "title": "Juge · Grok 4.3 · essai de sélection",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_grok",
+      "model": "x-ai/grok-4.3",
+      "statut": "essai",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_qwen_plus": {
+    "title": "Juge · Qwen 3.7 Plus · essai de sélection",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_qwen_plus",
+      "model": "qwen/qwen3.7-plus",
+      "statut": "essai",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_deepseek_pro": {
+    "title": "Juge · DeepSeek V4 Pro · essai de sélection",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_deepseek_pro",
+      "model": "deepseek/deepseek-v4-pro",
+      "statut": "essai",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_minimax": {
+    "title": "Juge · MiniMax M3 · essai de sélection",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_minimax",
+      "model": "minimax/minimax-m3",
+      "statut": "essai",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "juge_kimi": {
+    "title": "Juge · Kimi K2.5 · essai de sélection",
+    "metadata": {
+      "kind": "juge",
+      "config": "juge_kimi",
+      "model": "moonshotai/kimi-k2.5",
+      "statut": "essai",
+      "judge_prompt": "dd478ccfe671",
+      "grid": "8 critères HealthBench Consensus"
+    }
+  },
+  "sonde": {
+    "title": "Sonde · tests techniques",
+    "metadata": {
+      "kind": "sonde",
+      "config": "sonde",
+      "model": "mistralai/mistral-small-24b-instruct-2501"
+    }
+  },
+  "G54": {
+    "title": "HealthBench-1000 · G54 · gpt-5.4 · référence",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "campaign": "hb1000_gpt54_gpt55",
+      "n_questions": 1000,
+      "protocol": "pipeline/docs/protocol_p1_gpt54_gpt55.md",
+      "config": "G54",
+      "role": "reference",
+      "model": "openai/gpt-5.4"
+    }
+  },
+  "G54_bis": {
+    "title": "HealthBench-1000 · G54_bis · gpt-5.4 · contrôle (H0)",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "campaign": "hb1000_gpt54_gpt55",
+      "n_questions": 1000,
+      "protocol": "pipeline/docs/protocol_p1_gpt54_gpt55.md",
+      "config": "G54_bis",
+      "role": "controle",
+      "model": "openai/gpt-5.4"
+    }
+  },
+  "G55": {
+    "title": "HealthBench-1000 · G55 · gpt-5.5 · nouvelle version (H1)",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "healthbench",
+      "campaign": "hb1000_gpt54_gpt55",
+      "n_questions": 1000,
+      "protocol": "pipeline/docs/protocol_p1_gpt54_gpt55.md",
+      "config": "G55",
+      "role": "derive",
+      "change": "model_version",
+      "model": "openai/gpt-5.5"
+    }
+  }
+}

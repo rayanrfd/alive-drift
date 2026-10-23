@@ -178,6 +178,7 @@ def test_trois_questions(tmp_path):
         "response": REAL_RUN["content"],
         "model": "mistralai/mistral-small-24b-instruct-2501",
         "provider": "DeepInfra",
+        "message_id": "mg-sBZ3LMug33mOUX7O",   # l'id du run (morceau 37)
         "prompt_tokens": 33,
         "completion_tokens": 181,
         "reasoning_tokens": 0,

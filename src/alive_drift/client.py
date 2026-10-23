@@ -93,17 +93,24 @@ def make_client(token: str, transport: httpx.BaseTransport | None = None) -> htt
 
 
 def run_once(client: httpx.Client, room_id: str, deployment_id: str,
-             question: str, expected_model: str, expected_effort: str = "none",
-             served_model: str | None = None) -> dict:
+             question: str | None, expected_model: str, expected_effort: str = "none",
+             served_model: str | None = None, parent_id: str | None = None) -> dict:
     """Envoie la question, renvoie le JSON d'Alive s'il passe check_run.
+
+    question : None = aucun message (juge « dans le fil » en conversation=transcript :
+    Alive ne crée pas de message utilisateur, le run répond directement sous parent_id).
+    parent_id : None = conversation neuve ; sinon l'id du message (mg-...) sous lequel
+    répondre. Le run renvoyé doit alors avoir ce message pour parent DIRECT, sinon
+    RunRejected. (Avec un input, Alive crée d'abord un message utilisateur sous parent_id
+    et place le run sous ce message-là : parent direct différent, rejeté.)
 
     Lève httpx.HTTPStatusError si Alive répond une erreur (401, 502...),
     RunRejected si la réponse ne doit pas être gardée.
     """
     url = f"/threads/{room_id}/deployments/{deployment_id}/runs"
     body = {
-        "input": question,
-        "parent_id": None,  # conversation neuve : aucune question précédente
+        "input": question,  # None : pas de message utilisateur
+        "parent_id": parent_id,  # None : conversation neuve ; mg-... : réponse sous ce message
         "stream": False,    # une seule réponse JSON, pas un flux
     }
     response = client.post(url, json=body)
@@ -113,6 +120,8 @@ def run_once(client: httpx.Client, room_id: str, deployment_id: str,
     except ValueError:  # code 200 mais le corps n'est pas du JSON
         raise RunRejected("réponse 200 illisible (pas du JSON)") from None
     check_run(run, expected_model, expected_effort, served_model)
+    if parent_id is not None and run.get("parent_id") != parent_id:
+        raise RunRejected(f"run placé sous {run.get('parent_id')!r}, attendu sous {parent_id!r}")
     return run
 
 
@@ -125,9 +134,9 @@ def is_retryable(err: Exception) -> bool:
 
 
 def run_with_retries(client: httpx.Client, room_id: str, deployment_id: str,
-                     question: str, expected_model: str, expected_effort: str = "none",
+                     question: str | None, expected_model: str, expected_effort: str = "none",
                      sleep=time.sleep, give_up=lambda: False,
-                     served_model: str | None = None) -> dict:
+                     served_model: str | None = None, parent_id: str | None = None) -> dict:
     """run_once, avec jusqu'à 5 essais si l'échec est passager.
 
     RunRejected n'est JAMAIS réessayé : le run a abouti (donc il est facturé)
@@ -141,7 +150,7 @@ def run_with_retries(client: httpx.Client, room_id: str, deployment_id: str,
     for attempt in range(1, attempts + 1):
         try:
             return run_once(client, room_id, deployment_id, question,
-                            expected_model, expected_effort, served_model)
+                            expected_model, expected_effort, served_model, parent_id)
         except (httpx.HTTPStatusError, httpx.TransportError) as err:
             if attempt == attempts or not is_retryable(err) or give_up():
                 raise  # dernier essai, erreur sans espoir, ou campagne en cours d'arrêt
