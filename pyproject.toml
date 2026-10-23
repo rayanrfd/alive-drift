@@ -20,3 +20,5 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# tests/ dans le chemin d'import : tests/mab/ réutilise test_check (REAL_RUN), même lancé seul
+pythonpath = ["tests"]
