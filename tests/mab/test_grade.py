@@ -11,10 +11,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import requests
 
 from alive_drift.mab.fhir import ServerUnreachable
-from alive_drift.mab.grade import (TASK_DIR, default_out, grade_file, load_refsol, main,
-                                   summary)
+from alive_drift.mab.grade import (GRADER_TIMEOUT_S, TASK_DIR, GraderGetFailed, default_out,
+                                   grade_file, load_refsol, main, summary)
 from alive_drift.mab.loop import COMPLETED, INVALID_ACTION, LIMIT_REACHED
 from alive_drift.mab.tasks import FHIR_API_BASE, first_message, load_funcs, load_tasks, tasks_fingerprint
 
@@ -22,9 +23,23 @@ TASKS = {t.id: t for t in load_tasks()}
 FUNCS = load_funcs()
 FINGERPRINT = tasks_fingerprint()
 
+# send_get_request : celui de leur utils.py, recopié tel quel (pour tester le délai et le témoin)
 FAKE_UTILS = '''
+import requests
+
 def marker():
     return "utils de MedAgentBench"
+
+def send_get_request(url, params=None, headers=None):
+    try:
+        response = requests.get(url, params=params, headers=headers)
+        response.raise_for_status()
+        return {
+            "status_code": response.status_code,
+            "data": response.json() if response.headers.get('Content-Type') == 'application/json' else response.text
+        }
+    except Exception as e:
+        return {"error": str(e)}
 '''
 
 # task1 : comme le vrai (compare sol) ; task2 : lève une exception (serveur en panne chez
@@ -51,6 +66,18 @@ def task3(case_data, results, fhir_api_base):
 
 def task4(case_data, results, fhir_api_base):
     return "oui"
+
+# task5 : comme les vrais (GET hors try) ; task6 : GET dont l'échec est avalé
+def task5(case_data, results, fhir_api_base):
+    get_res = json.loads(send_get_request(f"{fhir_api_base}Observation?patient=X&_format=json")['data'])
+    return [get_res["total"]] == json.loads(results.result)
+
+def task6(case_data, results, fhir_api_base):
+    try:
+        json.loads(send_get_request(f"{fhir_api_base}Observation?code=GLU&_format=json")['data'])
+    except Exception:
+        return False
+    return True
 '''
 
 
@@ -117,8 +144,13 @@ def test_refsol_absent_refuse(tmp_path):
 
 def test_deux_clones_ne_se_melangent_pas(tmp_path):
     a = load_refsol(fake_mab(tmp_path / "a"))
-    b = load_refsol(fake_mab(tmp_path / "b", utils='def marker():\n    return "autre"\n'))
+    b = load_refsol(fake_mab(tmp_path / "b", utils=FAKE_UTILS.replace('"utils de MedAgentBench"', '"autre"')))
     assert a.module.marker() == "utils de MedAgentBench" and b.module.marker() == "autre"
+
+
+def test_refsol_sans_send_get_request_refuse(tmp_path):
+    with pytest.raises(ValueError, match="send_get_request"):
+        load_refsol(fake_mab(tmp_path, utils='def marker():\n    return 1\n'))
 
 
 # --- Règles de notation (celles de calculate_overall et eval.py) --------------------------
@@ -183,6 +215,53 @@ def test_ligne_notee(tmp_path):
     g = graded[0]
     assert g["execution_ids"] == ["ex-task1_1-0"] and g["fingerprint"] == FINGERPRINT
     assert g["status"] == COMPLETED and g["config"] == "mab" and len(g["refsol"]) == 12
+
+
+# --- Les GET du correcteur ---------------------------------------------------------------
+
+def fhir_response(body=b'{"total": 3}', status=200, reason="OK"):
+    """Une vraie requests.Response, comme celles du serveur FHIR (application/fhir+json)."""
+    r = requests.Response()
+    r.status_code, r.reason, r.url, r._content = status, reason, "http://localhost:8080/fhir/", body
+    r.headers["Content-Type"] = "application/fhir+json;charset=utf-8"
+    return r
+
+
+def test_get_du_correcteur_avec_delai_et_note_inchangee(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        calls.append((url, timeout))
+        return fhir_response()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    graded, _ = grade(tmp_path, [record("task5_1", result="[3]"), record("task5_2", result="[4]")])
+    assert [g["correct"] for g in graded] == [True, False]
+    assert calls[0] == ("http://localhost:8080/fhir/Observation?patient=X&_format=json", GRADER_TIMEOUT_S)
+
+
+@pytest.mark.parametrize("task_id", ["task5_1", "task6_1"])   # GET hors try, GET dans un try
+@pytest.mark.parametrize("failure", [requests.ConnectionError("refusée"), requests.Timeout("délai"),
+                                     fhir_response(b"oups", 500, "Server Error")])
+def test_get_du_correcteur_rate_arrete_sans_ecrire(tmp_path, monkeypatch, task_id, failure):
+    def fake_get(url, params=None, headers=None, timeout=None):
+        if isinstance(failure, Exception):
+            raise failure
+        return failure
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    # le serveur répond à /metadata : sans le témoin, la tâche serait notée fausse sans bruit
+    with pytest.raises(GraderGetFailed, match=task_id):
+        grade(tmp_path, [record("task1_1"), record(task_id, result="[3]")])
+    assert not (tmp_path / "mab.graded.jsonl").exists()
+
+
+def test_commande_get_du_correcteur_rate(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(requests, "get", lambda *a, **k: (_ for _ in ()).throw(requests.ConnectionError("x")))
+    runs = write_runs(tmp_path, [record("task5_1", result="[3]")])
+    code = main(["--runs", str(runs), "--medagentbench", str(fake_mab(tmp_path))], server_ok=up)
+    assert code == 1 and "rien n'a été écrit" in capsys.readouterr().err
+    assert not default_out(runs).exists()
 
 
 # --- Fichiers -----------------------------------------------------------------------------
@@ -264,3 +343,29 @@ def test_vrai_refsol_lit_nos_post():
     assert module.extract_posts(results) == [("http://localhost:8080/fhir/Observation",
                                               {"resourceType": "Observation", "valueString": "118/77 mmHg"})]
     assert module.check_has_post(results) is True
+
+
+@real
+def test_vrai_refsol_get_rate_arrete(tmp_path, monkeypatch):
+    # task2 du vrai refsol : GET du patient pour calculer l'âge. Serveur en panne -> arrêt.
+    seen = []
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        seen.append(timeout)
+        raise requests.ConnectionError("refusée")
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    runs = write_runs(tmp_path, [record("task2_1", result="[60]")])
+    with pytest.raises(GraderGetFailed, match="task2_1"):
+        grade_file(runs, tmp_path / "vrai.jsonl", load_refsol(REAL_MAB), server_ok=up)
+    assert seen == [GRADER_TIMEOUT_S]           # le délai passe bien par leur utils.py
+
+
+@real
+def test_vrai_refsol_get_reussi_note_comme_chez_eux(tmp_path, monkeypatch):
+    # même tâche, le serveur répond : âge calculé par leur code (date figée 2023-11-13)
+    body = b'{"entry": [{"resource": {"birthDate": "1963-01-29"}}]}'
+    monkeypatch.setattr(requests, "get", lambda url, params=None, headers=None, timeout=None: fhir_response(body))
+    runs = write_runs(tmp_path, [record("task2_1", result="[60]"), record("task2_2", result="[61]")])
+    graded = grade_file(runs, tmp_path / "vrai.jsonl", load_refsol(REAL_MAB), server_ok=up)
+    assert [g["correct"] for g in graded] == [True, False]

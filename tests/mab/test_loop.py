@@ -190,6 +190,24 @@ def test_run_place_sous_le_parent_lui_meme_rejete(tmp_path):
     assert result == (0, 1) and lines(out) == []
 
 
+def test_erreur_imprevue_arrete_proprement(tmp_path):
+    # une réponse du serveur FHIR d'une forme inconnue (ni data ni error) : KeyError dans
+    # play_task. Avant : plantage. Maintenant : journal, arrêt, rien compté contre l'agent.
+    result, alive, _, out = campaign(tmp_path, {T1.id: [GET_P], T2.id: [GET_P]}, [T1, T2], fhir=FakeFhir({}))
+    assert isinstance(result, CampaignStopped) and "KeyError" in str(result) and T1.id in str(result)
+    assert lines(out) == [] and len(alive.bodies) == 1            # la 2e tâche n'est pas lancée
+    [err] = lines(tmp_path / "mab.errors.jsonl")
+    assert err["task_id"] == T1.id and "KeyError" in err["error"]
+
+
+def test_commande_erreur_imprevue(tmp_path, capsys):
+    configs, env = write_configs(tmp_path)
+    code = main(["--config", "mab", "--configs", str(configs), "--out", str(tmp_path / "o.jsonl"),
+                 "--task", "task1_1"], transport=httpx.MockTransport(FakeAlive({"task1_1": [GET_P]}).handler),
+                fhir=FakeFhir({}), server_ok=lambda base: True, sleep=lambda s: None, env_file=env)
+    assert code == 1 and "erreur imprévue" in capsys.readouterr().err
+
+
 def test_cinq_taches_en_erreur_d_affilee_arretent(tmp_path):
     tasks = TASKS[:6]
     replies = {t.id: [FINISH_OK] for t in tasks}
@@ -214,6 +232,16 @@ def test_reprise_refuse_un_fichier_d_une_autre_config(tmp_path):
     with make_client(TOKEN, httpx.MockTransport(FakeAlive({}).handler)) as client:
         with pytest.raises(ValueError, match="config"):
             run_campaign(client, other, [T1], FUNCS, out_path=out, fingerprint=FINGERPRINT,
+                         fhir=FakeFhir(), sleep=lambda s: None)
+
+
+def test_reprise_refuse_un_fichier_d_une_autre_room(tmp_path):
+    campaign(tmp_path, {T1.id: [FINISH_OK]}, [T1])
+    out = tmp_path / "mab.jsonl"
+    moved = Config(name="mab", room="th-AUTRE", deployment="dp-MAB", model=MODEL, reasoning_effort="none")
+    with make_client(TOKEN, httpx.MockTransport(FakeAlive({}).handler)) as client:
+        with pytest.raises(ValueError, match="room_id"):
+            run_campaign(client, moved, [T1], FUNCS, out_path=out, fingerprint=FINGERPRINT,
                          fhir=FakeFhir(), sleep=lambda s: None)
 
 

@@ -89,12 +89,23 @@ def test_export_trois_fichiers(tmp_path, capsys):
     assert "30 tâches dans les trois fichiers" in printed and "run_pipeline1.py --scores-dir" in printed
 
 
-def test_autre_graine(tmp_path):
-    paths = three_files(tmp_path)
-    code, out = run_export(tmp_path, paths, "--order-seed", "7")
-    rows = read_out(out / "a_hb_clinical_adequacy.jsonl")
-    numbers = task_numbers(TASK_IDS, 7)
-    assert code == 0 and all(r["id"] == numbers[r["task_id"]] and r["order_seed"] == 7 for r in rows)
+def test_pas_d_option_pour_changer_la_graine(tmp_path, capsys):
+    # une graine choisie après avoir vu les notes affaiblirait le test : pas d'option
+    with pytest.raises(SystemExit):
+        run_export(tmp_path, three_files(tmp_path), "--order-seed", "7")
+    assert "unrecognized arguments" in capsys.readouterr().err
+
+
+def test_previent_lots_incomplets_et_trop_peu_de_paires(tmp_path, capsys):
+    code, _ = run_export(tmp_path, three_files(tmp_path))         # 30 tâches : 1 lot + 5, < 100
+    printed = capsys.readouterr().out
+    assert code == 0 and "les 5 dernières paires" in printed and "run_pipeline1 refusera" in printed
+
+
+def test_300_taches_douze_lots_sans_avertissement(tmp_path, capsys):
+    code, _ = run_export(tmp_path, three_files(tmp_path, tasks=TASK_IDS))
+    printed = capsys.readouterr().out
+    assert code == 0 and "300 tâches dans les trois fichiers" in printed and "ATTENTION" not in printed
 
 
 def test_taches_manquantes_signalees(tmp_path, capsys):

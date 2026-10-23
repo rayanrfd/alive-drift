@@ -15,9 +15,15 @@ et eval.py, commit 9926011, licence MIT) :
 - taux de réussite = tâches justes / toutes les tâches.
 
 Le correcteur interroge lui-même le serveur FHIR (la bonne valeur, pour la plupart des
-types). Écart volontaire : si le correcteur lève une exception ET que le serveur ne
-répond plus, on arrête tout sans rien écrire, pour ne jamais compter une panne comme
-une erreur de l'agent. Les exceptions restantes sont gardées dans la ligne (grader_error).
+types), avec send_get_request de leur utils.py. Écarts volontaires, pour ne jamais compter
+une panne comme une erreur de l'agent :
+- chaque GET du correcteur a un délai (60 s) : chez eux, requests.get sans délai peut
+  attendre indéfiniment ;
+- si un GET du correcteur échoue (pas de données : serveur en panne, délai dépassé,
+  erreur 5xx...), on arrête tout sans rien écrire, même si refsol a avalé l'erreur ;
+- si le correcteur lève une exception et que le serveur ne répond plus, pareil.
+Les autres exceptions sont gardées dans la ligne (grader_error) et la tâche est fausse.
+Une réponse réussie est passée telle quelle à refsol : la note ne change pas.
 
 Ce que le correcteur affiche (souvent « id, réponse attendue, réponse de l'agent ») est
 gardé dans grader_output : c'est là qu'on lit la bonne réponse.
@@ -41,6 +47,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
 
+import requests
+
 from alive_drift.files import append_line, now_utc, read_records
 from alive_drift.mab.fhir import ServerUnreachable, check_server
 from alive_drift.mab.tasks import FUNCS_PATH, TASKS_PATH, file_hash, tasks_fingerprint
@@ -48,19 +56,60 @@ from alive_drift.mab.tasks import FUNCS_PATH, TASKS_PATH, file_hash, tasks_finge
 MAB_DIR = "../MedAgentBench"
 TASK_DIR = Path("src") / "server" / "tasks" / "medagentbench"   # dans le clone de MedAgentBench
 
+GRADER_TIMEOUT_S = 60
+
 _names = itertools.count(1)
 
 
+class GraderGetFailed(ServerUnreachable):
+    """Un GET du correcteur n'a pas eu de réponse : la note serait celle d'une panne."""
+
+
 class Refsol(SimpleNamespace):
-    """Le module refsol chargé, et les empreintes de refsol.py et utils.py."""
+    """Le module refsol chargé, ses empreintes, et les GET ratés du dernier appel (failures)."""
 
 
-def load_refsol(mab_dir=MAB_DIR) -> Refsol:
+class _RequestsWithTimeout:
+    """Remplace `requests` dans leur utils.py : le même requests.get, avec un délai."""
+
+    def __init__(self, timeout: float):
+        self.timeout = timeout
+
+    def get(self, url, params=None, headers=None):
+        return requests.get(url, params=params, headers=headers, timeout=self.timeout)
+
+
+def _watch_gets(module, timeout: float) -> list[str]:
+    """Branche un délai et un témoin sur send_get_request. Renvoie la liste des GET ratés.
+
+    Leur send_get_request renvoie {"error": ...} au lieu de lever : refsol plante plus
+    loin (KeyError 'data'), ou avale l'erreur. Le témoin note chaque GET sans données,
+    puis rend la réponse telle quelle : refsol se comporte exactement comme chez eux.
+    """
+    original = getattr(module, "send_get_request", None)
+    if not callable(original) or "requests" not in getattr(original, "__globals__", {}):
+        raise ValueError("refsol.py n'a pas le send_get_request de utils.py (avec requests) : "
+                         "le correcteur a changé, à vérifier avant de noter")
+    original.__globals__["requests"] = _RequestsWithTimeout(timeout)
+    failures: list[str] = []
+
+    def watched(url, params=None, headers=None):
+        response = original(url, params, headers)
+        if not isinstance(response, dict) or "data" not in response:
+            failures.append(f"GET {url} : {response.get('error') if isinstance(response, dict) else response!r}")
+        return response
+
+    module.send_get_request = watched           # refsol appelle send_get_request par ce nom
+    return failures
+
+
+def load_refsol(mab_dir=MAB_DIR, timeout: float = GRADER_TIMEOUT_S) -> Refsol:
     """Charge refsol.py depuis le clone de MedAgentBench, avec son « from .utils import * ».
 
     On ne passe pas par leur paquet (son __init__.py importe tout leur serveur) : on crée
     un paquet vide qui pointe vers leur dossier, pour que .utils soit leur utils.py.
-    Lève FileNotFoundError si refsol.py ou utils.py manque.
+    Lève FileNotFoundError si refsol.py ou utils.py manque, ValueError si refsol n'a pas
+    le send_get_request attendu.
     """
     task_dir = Path(mab_dir).expanduser() / TASK_DIR
     paths = {name: task_dir / f"{name}.py" for name in ("refsol", "utils")}
@@ -80,8 +129,9 @@ def load_refsol(mab_dir=MAB_DIR) -> Refsol:
     finally:                                    # le module reste utilisable, on ne le garde pas
         for name in [n for n in sys.modules if n == package or n.startswith(package + ".")]:
             del sys.modules[name]
+    failures = _watch_gets(module, timeout)
     return Refsol(module=module, refsol_hash=file_hash(paths["refsol"]),
-                  utils_hash=file_hash(paths["utils"]), task_dir=str(task_dir))
+                  utils_hash=file_hash(paths["utils"]), task_dir=str(task_dir), failures=failures)
 
 
 def load_cases(tasks_path=TASKS_PATH) -> dict[str, dict]:
@@ -94,7 +144,8 @@ def grade_one(refsol: Refsol, case: dict, rec: dict, api_base: str,
               server_ok: Callable[[str], bool]) -> dict:
     """La note d'une tâche : {correct, graded, grader_output, grader_error}.
 
-    Lève ServerUnreachable si le correcteur a échoué et que le serveur ne répond plus.
+    Lève GraderGetFailed si un GET du correcteur a échoué, ServerUnreachable si le
+    correcteur a levé une exception et que le serveur ne répond plus.
     """
     if rec["result"] is None:                   # chez eux : seules les tâches avec un résultat
         return {"correct": False, "graded": False, "grader_output": "", "grader_error": None}
@@ -104,11 +155,15 @@ def grade_one(refsol: Refsol, case: dict, rec: dict, api_base: str,
                                        for h in rec["history"]])
     grader = getattr(refsol.module, case["id"].split("_")[0])     # comme eval.py
     out, error = io.StringIO(), None
+    refsol.failures.clear()
     with redirect_stdout(out):
         try:
             correct = grader(case, results, api_base) is True
         except Exception as err:                # comme eval.py : fausse
             correct, error = False, f"{type(err).__name__}: {err}"
+    if refsol.failures:
+        raise GraderGetFailed(f"{rec['task_id']} : le correcteur n'a pas eu de réponse du serveur "
+                              f"({'; '.join(refsol.failures)})")
     if error is not None and not server_ok(api_base):
         raise ServerUnreachable(f"{rec['task_id']} : le correcteur a échoué ({error}) "
                                 f"et le serveur FHIR {api_base} ne répond plus")

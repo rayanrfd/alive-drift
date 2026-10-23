@@ -26,6 +26,9 @@ conversation de MedAgentBench.
   n'est PAS enregistrée comme résultat ; elle va dans le journal d'erreurs et sera
   reprise de zéro au prochain lancement (chez eux : statut « task error »).
   Après 5 tâches en erreur d'affilée, on arrête.
+- erreur imprévue dans une tâche (un bug, une réponse d'Alive d'une forme inconnue) :
+  journal d'erreurs, puis arrêt propre (les tâches en cours vont au bout, ce qui est
+  déjà écrit reste), au lieu d'un plantage qui perd les tâches en cours.
 
 Pas de correction ici (morceau 32 : refsol.py). Chaque ligne garde tout l'historique,
 avec les rôles « user » / « agent » de MedAgentBench, que lit refsol.py.
@@ -137,11 +140,11 @@ def make_record(task: Task, outcome: dict, config: Config, api_base: str, finger
 
 def load_done(out_path: Path, config: Config, fingerprint: dict, task_ids: set[str]) -> tuple[set[str], set[str]]:
     """(tâches déjà faites, execution_id déjà vus). Lève ValueError si le fichier n'est
-    pas celui de cette campagne (autre config, déploiement, modèle, effort ou tâches)."""
+    pas celui de cette campagne (autre config, room, déploiement, modèle, effort ou tâches)."""
     done, executions = set(), set()
     for where, rec in read_records(out_path):
-        for field, expected in (("config", config.name), ("deployment_id", config.deployment),
-                                ("model", config.model), ("reasoning_effort", config.reasoning_effort),
+        for field, expected in (("config", config.name), ("room_id", config.room),
+                                ("deployment_id", config.deployment), ("model", config.model), ("reasoning_effort", config.reasoning_effort),
                                 ("fingerprint", fingerprint)):
             if rec.get(field) != expected:
                 raise ValueError(f"{where} : {field} {rec.get(field)!r}, attendu {expected!r}")
@@ -216,6 +219,9 @@ def run_campaign(client: httpx.Client, config: Config, tasks: list[Task], funcs:
             return task, play_task(task, funcs, send, fhir, api_base, max_rounds), None
         except (TaskInterrupted, ServerUnreachable) as err:
             return task, None, err
+        except Exception as err:            # un bug ou une réponse imprévue : on arrête proprement
+            stop = CampaignStopped(f"erreur imprévue dans {task.id} : {type(err).__name__}: {err}")
+            return task, None, TaskInterrupted(0, stop)
 
     state = {"ok": 0, "failed": 0, "consecutive": 0, "stop": None}
 

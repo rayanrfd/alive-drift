@@ -16,11 +16,17 @@ score dans [0, 1], qui ne vaut que 0 ou 1.
 Deux adaptations :
 - drift-audit veut des ids entiers et range les paires par id. Rangées par nom de tâche,
   les 30 tâches d'un même type se suivraient (lots de 25 presque d'un seul type). On
-  numérote donc les 300 tâches dans un ordre tiré au hasard, avec une graine fixée
-  (--order-seed, enregistrée sur chaque ligne) : même numéro pour une tâche dans les
-  trois fichiers, donc l'appariement est intact.
+  numérote donc les 300 tâches dans un ordre tiré au hasard, avec une graine FIXÉE dans
+  le code (ORDER_SEED, enregistrée sur chaque ligne) : même numéro pour une tâche dans
+  les trois fichiers, donc l'appariement est intact. Pas d'option pour la changer : une
+  graine choisie après avoir vu les notes changerait le moment de détection, et la
+  garantie du test ne tiendrait plus. (fpr_permutation, lui, teste d'autres ordres.)
 - « jury_fingerprint » (drift-audit refuse de comparer deux empreintes différentes)
   résume ici l'instrument : refsol.py, utils.py, les tâches et le serveur FHIR.
+
+Ce que drift-audit en fait : des lots de 25 paires (les paires au-delà du dernier lot
+complet sont ignorées), et run_pipeline1 refuse moins de 100 paires (--min-pairs). Les
+300 tâches font 12 lots exactement. L'export prévient si ce n'est pas le cas.
 
 Écrit outputs/richter/<--name>/ (jamais par-dessus) et affiche la commande de Richter.
 Aucun appel à Alive ni au serveur FHIR. Aucun import de drift-audit.
@@ -39,7 +45,9 @@ from pathlib import Path
 from alive_drift.files import append_line, read_records
 from alive_drift.mab.tasks import TASKS_PATH, load_tasks
 
-ORDER_SEED = 0
+ORDER_SEED = 0           # fixée avant toute campagne ; ne pas changer (voir plus haut)
+LOT = 25                 # AUDIT_BATCH_SIZE de drift-audit
+MIN_PAIRS = 100          # DEFAULT_MIN_PAIRS de pipeline/run_pipeline1.py
 NAMES = {"ref": "a_hb", "h0": "a_bis_hb", "h1": "b_hb"}      # les noms de drift-audit
 INSTRUMENT = ("refsol", "refsol_utils", "fingerprint", "api_base")
 SAME_IN_FILE = ("config", "deployment_id", "model", "reasoning_effort") + INSTRUMENT
@@ -133,8 +141,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--h1", required=True, help="notes de l'agent dont on cherche la dérive")
     parser.add_argument("--name", required=True, help="nom de l'export, ex. mab_g54mini_g55mini")
     parser.add_argument("--out-dir", default=None, help="défaut : outputs/richter/<name>")
-    parser.add_argument("--order-seed", type=int, default=ORDER_SEED,
-                        help=f"graine de l'ordre des tâches (défaut {ORDER_SEED} ; à fixer avant de voir les résultats)")
     parser.add_argument("--tasks", default=TASKS_PATH)
     args = parser.parse_args(argv)
     out_dir = Path(args.out_dir or Path("outputs") / "richter" / args.name)
@@ -144,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         task_ids = [t.id for t in load_tasks(args.tasks)]
         known = set(task_ids)
         graded = {role: read_graded(getattr(args, role), known) for role in NAMES}
-        fingerprint, out = export_rows(graded, task_numbers(task_ids, args.order_seed), args.order_seed)
+        fingerprint, out = export_rows(graded, task_numbers(task_ids, ORDER_SEED), ORDER_SEED)
     except (ValueError, OSError) as err:
         print(f"REFUS : {err}", file=sys.stderr)
         return 2
@@ -157,7 +163,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{name:9} ({rows[0]['config']}) {len(rows):4} tâches, {right:.0f} justes, "
               f"{len(rows) - sum(r['task_id'] in common for r in rows)} absentes d'un autre fichier")
     print(f"{len(common)} tâches dans les trois fichiers (les autres seront écartées par drift-audit)")
-    print(f"empreinte de l'instrument : {fingerprint}, ordre des tâches : graine {args.order_seed}")
+    lots, rest = divmod(len(common), LOT)
+    if rest:
+        print(f"ATTENTION : {lots} lots de {LOT} ; les {rest} dernières paires (par id) ne seront pas utilisées")
+    if len(common) < MIN_PAIRS:
+        print(f"ATTENTION : moins de {MIN_PAIRS} paires, run_pipeline1 refusera (--min-pairs {MIN_PAIRS})")
+    print(f"empreinte de l'instrument : {fingerprint}, ordre des tâches : graine {ORDER_SEED}")
     print(f"-> {out_dir}")
     run = f"alive_{out_dir.name}"
     print("Richter (depuis le dossier pipeline) :\n"
