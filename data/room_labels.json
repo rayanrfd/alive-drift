@@ -270,5 +270,16 @@
       "change": "model_version",
       "model": "openai/gpt-5.5"
     }
+  },
+  "mab_g54mini": {
+    "title": "MedAgentBench · mab_g54mini · gpt-5.4-mini · essais",
+    "metadata": {
+      "kind": "campagne",
+      "dataset": "medagentbench",
+      "n_tasks": 300,
+      "config": "mab_g54mini",
+      "role": "essai",
+      "model": "openai/gpt-5.4-mini"
+    }
   }
 }
